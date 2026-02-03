@@ -371,6 +371,32 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     to { transform: translateX(0); opacity: 1; }
 }
 
+/* Favorite chips */
+.fav-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: var(--text-primary);
+}
+.fav-chip:hover { border-color: var(--blue); background: rgba(88,166,255,0.1); }
+.fav-chip .type-tag { color: var(--text-muted); font-size: 10px; }
+.fav-chip .remove-fav {
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+}
+.fav-chip .remove-fav:hover { color: var(--red); }
+
 /* Empty state */
 .empty-state {
     text-align: center;

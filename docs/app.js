@@ -150,9 +150,49 @@ async function toggleMonitor() {
 function showAddWatch() {
     document.getElementById('add-watch-form').style.display = 'block';
     document.getElementById('w-symbol').focus();
+    renderFavorites();
 }
 function hideAddWatch() {
     document.getElementById('add-watch-form').style.display = 'none';
+    document.getElementById('favorites-bar').style.display = 'none';
+}
+
+function renderFavorites() {
+    const favs = loadFavorites();
+    const bar = document.getElementById('favorites-bar');
+    const chips = document.getElementById('fav-chips');
+    if (favs.length === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+    bar.style.display = 'block';
+    chips.innerHTML = '<span style="font-size:11px;color:var(--text-muted);">收藏：</span>' +
+        favs.map(f => `
+            <span class="fav-chip" onclick="quickAddFromFav('${f.symbol}','${f.sec_type}','${f.exchange}','${f.currency}')">
+                ${f.symbol} <span class="type-tag">${f.sec_type}</span>
+                <span class="remove-fav" onclick="event.stopPropagation();removeFavAndRender('${f.symbol}','${f.sec_type}')" title="取消收藏">×</span>
+            </span>
+        `).join('');
+}
+
+function removeFavAndRender(symbol, secType) {
+    removeFavorite(symbol, secType);
+    renderFavorites();
+}
+
+async function quickAddFromFav(symbol, secType, exchange, currency) {
+    const maPeriod = parseInt(document.getElementById('w-ma-period').value) || 21;
+    const nPoints = parseFloat(document.getElementById('w-n-points').value) || 5;
+    const item = {
+        symbol, sec_type: secType, exchange: exchange || 'SMART',
+        currency: currency || 'USD', ma_period: maPeriod, n_points: nPoints, enabled: true,
+    };
+    const res = await api('/api/watch', 'POST', item);
+    if (res) {
+        if (!standaloneMode) state.watchList.push(res);
+        log(`已從收藏新增: ${symbol}`, 'success');
+        renderWatchList();
+    }
 }
 
 async function addWatch() {
@@ -169,9 +209,12 @@ async function addWatch() {
     };
     const res = await api('/api/watch', 'POST', item);
     if (res) {
-        log(`已新增觀察: ${symbol}`, 'success');
-        state.watchList.push(res);
+        // Auto-save to favorites
+        addFavorite(item);
+        log(`已新增觀察: ${symbol}（已收藏 ⭐）`, 'success');
+        if (!standaloneMode) state.watchList.push(res);
         renderWatchList();
+        renderFavorites();
         hideAddWatch();
         document.getElementById('w-symbol').value = '';
     }
@@ -443,6 +486,26 @@ function log(msg, level = 'info') {
     while (container.children.length > 200) {
         container.removeChild(container.firstChild);
     }
+}
+
+// ─── Favorites (localStorage) ───
+const FAV_KEY = 'trademon_favorites';
+function loadFavorites() {
+    try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch(e) { return []; }
+}
+function saveFavorites(favs) {
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+}
+function addFavorite(item) {
+    const favs = loadFavorites();
+    // Dedupe by symbol+secType
+    if (favs.some(f => f.symbol === item.symbol && f.sec_type === item.sec_type)) return;
+    favs.push({ symbol: item.symbol, sec_type: item.sec_type, exchange: item.exchange, currency: item.currency });
+    saveFavorites(favs);
+}
+function removeFavorite(symbol, secType) {
+    const favs = loadFavorites().filter(f => !(f.symbol === symbol && f.sec_type === secType));
+    saveFavorites(favs);
 }
 
 // ─── Standalone Demo (no backend) ───
