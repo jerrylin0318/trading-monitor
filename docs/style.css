@@ -211,32 +211,48 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     border-radius: 6px;
     padding: 12px 16px;
     margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     border: 1px solid var(--border);
     transition: border-color 0.15s;
 }
 .watch-item:hover { border-color: var(--border-light); }
 .watch-item.disabled { opacity: 0.5; }
+.watch-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
 .watch-symbol {
     font-size: 16px;
     font-weight: 700;
     color: var(--blue);
 }
+.watch-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
 .watch-details {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 8px 16px;
     font-size: 12px;
     color: var(--text-secondary);
-    margin-top: 4px;
+    margin-top: 8px;
 }
 .watch-details span { display: flex; align-items: center; gap: 4px; }
+.watch-bottom-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
 .watch-ma-info {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 .ma-badge {
     display: inline-block;
@@ -248,10 +264,9 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .ma-badge.rising { background: rgba(63,185,80,0.15); color: var(--green); }
 .ma-badge.falling { background: rgba(248,81,73,0.15); color: var(--red); }
 .ma-badge.flat { background: rgba(139,148,158,0.15); color: var(--text-secondary); }
-.watch-actions {
-    display: flex;
-    gap: 4px;
-    margin-left: 12px;
+.watch-price-info {
+    font-size: 12px;
+    color: var(--text-secondary);
 }
 
 /* Signals */

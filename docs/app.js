@@ -342,27 +342,26 @@ function renderWatchList() {
 
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
-            <div>
-                <div class="watch-symbol">${w.symbol}</div>
-                <div class="watch-details">
-                    <span>${w.sec_type} · ${w.exchange}</span>
-                    <span>MA${w.ma_period}</span>
-                    <span>N=${w.n_points}</span>
-                    <span>價格: ${price}</span>
-                    <span>MA: ${ma}</span>
-                    <span>距離: ${dist}</span>
-                </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-                <div class="watch-ma-info">
-                    <span class="ma-badge ${dirClass}">${dirLabel}</span>
-                    <span style="font-size:11px;color:var(--text-muted)">觸發區: ${zone}</span>
-                </div>
+            <div class="watch-top-row">
+                <div class="watch-symbol">${w.symbol} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span></div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
                     </button>
                     <button class="btn btn-sm btn-icon btn-danger" onclick="removeWatch('${w.id}')" title="移除">🗑</button>
+                </div>
+            </div>
+            <div class="watch-details">
+                <span>MA${w.ma_period}</span>
+                <span>N=${w.n_points}</span>
+                <span>價格: ${price}</span>
+                <span>MA: ${ma}</span>
+                <span>距離: ${dist}</span>
+            </div>
+            <div class="watch-bottom-row">
+                <div class="watch-ma-info">
+                    <span class="ma-badge ${dirClass}">${dirLabel}</span>
+                    <span class="watch-price-info">觸發區: ${zone}</span>
                 </div>
             </div>
         </div>`;
