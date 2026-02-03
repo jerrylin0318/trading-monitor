@@ -196,6 +196,7 @@ async function addWatch() {
     const item = {
         symbol,
         sec_type: document.getElementById('w-sectype').value,
+        strategy: document.getElementById('w-strategy').value,
         exchange: document.getElementById('w-exchange').value.trim() || 'SMART',
         currency: document.getElementById('w-currency').value.trim() || 'USD',
         ma_period: parseInt(document.getElementById('w-ma-period').value) || 21,
@@ -342,7 +343,7 @@ function renderWatchList() {
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
             <div class="watch-top-row">
-                <div class="watch-symbol">${w.symbol} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span></div>
+                <div class="watch-symbol">${w.symbol} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span> <span class="strategy-tag ${w.strategy || 'BOTH'}">${w.strategy === 'BUY' ? '📈 買' : w.strategy === 'SELL' ? '📉 賣' : '↔️ 雙向'}</span></div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
@@ -434,11 +435,15 @@ function renderInlineOptions(watch, data, callOpts, putOpts, price) {
         ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}（啟動時篩選，重啟重新篩選）</div>`
         : '';
 
+    const strategy = watch.strategy || 'BOTH';
+    const showCall = strategy === 'BUY' || strategy === 'BOTH';
+    const showPut = strategy === 'SELL' || strategy === 'BOTH';
+
     return `<div class="opts-section">
         ${lockedInfo}
         ${underlying}
-        ${renderSide(callOpts, 'Call 價外5檔', 'var(--green)')}
-        ${renderSide(putOpts, 'Put 價外5檔', 'var(--red)')}
+        ${showCall ? renderSide(callOpts, 'Call 價外5檔（買進用）', 'var(--green)') : ''}
+        ${showPut ? renderSide(putOpts, 'Put 價外5檔（賣出用）', 'var(--red)') : ''}
     </div>`;
 }
 
@@ -634,9 +639,12 @@ function startStandaloneDemo() {
                 options_put: putOpts,
                 locked_ma: lockedMa,
             };
-            // 5% chance signal
-            if (Math.random() < 0.03 && w.enabled) {
-                const sigType = rising ? 'BUY' : 'SELL';
+            // 5% chance signal — only if matches strategy direction
+            const strategy = w.strategy || 'BOTH';
+            const canBuy = (strategy === 'BUY' || strategy === 'BOTH') && rising;
+            const canSell = (strategy === 'SELL' || strategy === 'BOTH') && !rising;
+            if (Math.random() < 0.03 && w.enabled && (canBuy || canSell)) {
+                const sigType = canBuy ? 'BUY' : 'SELL';
                 const sig = { timestamp: new Date().toISOString(), watch_id: w.id, symbol: w.symbol,
                     signal_type: sigType, price, ma_value: maVal, ma_period: w.ma_period,
                     n_points: w.n_points, distance: Math.abs(dist) };

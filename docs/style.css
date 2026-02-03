@@ -226,6 +226,16 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     font-weight: 700;
     color: var(--blue);
 }
+.strategy-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 500;
+    margin-left: 4px;
+}
+.strategy-tag.BUY { background: rgba(63,185,80,0.15); color: var(--green); }
+.strategy-tag.SELL { background: rgba(248,81,73,0.15); color: var(--red); }
+.strategy-tag.BOTH { background: rgba(88,166,255,0.15); color: var(--blue); }
 .watch-actions {
     display: flex;
     gap: 6px;
