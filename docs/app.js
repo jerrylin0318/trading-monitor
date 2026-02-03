@@ -7,6 +7,7 @@ let state = {
     monitoring: false,
     demoMode: false,
     watchList: [],
+    expandedWatch: null,
     signals: [],
     latestData: {},
     account: {},
@@ -340,6 +341,10 @@ function renderWatchList() {
         const dist = data.distance_from_ma != null ? data.distance_from_ma.toFixed(2) : '--';
         const zone = data.buy_zone || data.sell_zone || '--';
 
+        const callOpts = data.options_call || [];
+        const putOpts = data.options_put || [];
+        const expanded = state.expandedWatch === w.id;
+
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
             <div class="watch-top-row">
@@ -363,10 +368,62 @@ function renderWatchList() {
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
                     <span class="watch-price-info">觸發區: ${zone}</span>
                 </div>
+                <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
+                    ${expanded ? '收起 ▲' : '選擇權 ▼'}
+                </button>
             </div>
+            ${expanded ? renderInlineOptions(w, data, callOpts, putOpts, price) : ''}
         </div>`;
     }
     container.innerHTML = html;
+}
+
+function toggleExpand(watchId) {
+    state.expandedWatch = state.expandedWatch === watchId ? null : watchId;
+    renderWatchList();
+}
+
+function renderInlineOptions(watch, data, callOpts, putOpts, price) {
+    if (!callOpts.length && !putOpts.length) {
+        return '<div class="opts-section"><div class="empty-state">尚無選擇權數據</div></div>';
+    }
+    const renderSide = (opts, label, color) => {
+        if (!opts.length) return '';
+        let rows = opts.map((o, i) => `
+            <div class="opt-inline-row">
+                <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}">
+                <span class="opt-inline-name">${o.name}</span>
+                <span class="opt-inline-ba">${o.bid?.toFixed(2) || '--'}/${o.ask?.toFixed(2) || '--'}</span>
+                <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
+                <span class="opt-inline-vol">${o.volume || '--'}</span>
+                <input type="number" value="1" min="1" class="opt-inline-qty">
+            </div>
+        `).join('');
+        return `<div class="opt-inline-group">
+            <div class="opt-inline-label" style="color:${color}">${label}</div>
+            <div class="opt-inline-header">
+                <span></span><span>合約</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>數量</span>
+            </div>
+            ${rows}
+        </div>`;
+    };
+
+    // Also show underlying as tradeable
+    const underlying = `
+        <div class="opt-inline-row" style="border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px;">
+            <input type="checkbox" id="opt-${watch.id}-stk">
+            <span class="opt-inline-name">📈 ${watch.symbol}（標的）</span>
+            <span class="opt-inline-ba">--</span>
+            <span class="opt-inline-last" style="color:var(--blue)">$${price}</span>
+            <span class="opt-inline-vol">--</span>
+            <input type="number" value="1" min="1" class="opt-inline-qty">
+        </div>`;
+
+    return `<div class="opts-section">
+        ${underlying}
+        ${renderSide(callOpts, 'Call 價外5檔', 'var(--green)')}
+        ${renderSide(putOpts, 'Put 價外5檔', 'var(--red)')}
+    </div>`;
 }
 
 function renderSignals() {
@@ -542,6 +599,11 @@ function startStandaloneDemo() {
             const prevMa = +(maVal - (Math.random() - 0.5) * 0.5).toFixed(4);
             const rising = maVal > prevMa;
             const dist = +(price - maVal).toFixed(4);
+
+            // Generate OTM options based on current MA
+            const callOpts = genDemoOptions(w.symbol, 'C', maVal, base);
+            const putOpts = genDemoOptions(w.symbol, 'P', maVal, base);
+
             state.latestData[w.id] = {
                 symbol: w.symbol, current_price: price, ma_value: maVal,
                 prev_ma: prevMa, ma_period: w.ma_period,
@@ -550,6 +612,8 @@ function startStandaloneDemo() {
                 buy_zone: rising ? `${maVal.toFixed(2)} ~ ${(maVal + w.n_points).toFixed(2)}` : null,
                 sell_zone: !rising ? `${(maVal - w.n_points).toFixed(2)} ~ ${maVal.toFixed(2)}` : null,
                 last_updated: new Date().toISOString(),
+                options_call: callOpts,
+                options_put: putOpts,
             };
             // 5% chance signal
             if (Math.random() < 0.03 && w.enabled) {
@@ -560,22 +624,29 @@ function startStandaloneDemo() {
                 state.signals.unshift(sig);
                 renderSignals();
                 showSignalToast(sig);
-                const right = sigType === 'BUY' ? 'C' : 'P';
-                const baseStrike = Math.round(maVal / 5) * 5;
-                const opts = [];
-                for (let i = 0; i < 5; i++) {
-                    const strike = right === 'C' ? baseStrike + (i+1)*5 : baseStrike - (i+1)*5;
-                    const bid = +(Math.random() * 13 + 1.5).toFixed(2);
-                    const ask = +(bid + Math.random() * 0.5 + 0.1).toFixed(2);
-                    opts.push({ symbol: w.symbol, expiry: '20260220', strike, right,
-                        name: `${w.symbol} 20260220 ${strike} ${right}`,
-                        bid, ask, last: +((bid+ask)/2).toFixed(2), volume: Math.floor(Math.random()*5000+100) });
-                }
-                showOptionsPanel(sig, opts, { symbol: w.symbol, price, sec_type: w.sec_type || 'STK' });
             }
         }
         renderWatchList();
     }, 8000);
+}
+
+function genDemoOptions(symbol, right, maVal, basePrice) {
+    const step = basePrice > 1000 ? 25 : basePrice > 100 ? 5 : 1;
+    const baseStrike = Math.round(maVal / step) * step;
+    const opts = [];
+    for (let i = 0; i < 5; i++) {
+        const strike = right === 'C' ? baseStrike + (i + 1) * step : baseStrike - (i + 1) * step;
+        const dist = Math.abs(strike - basePrice);
+        const bid = +(Math.max(0.5, (15 - dist / basePrice * 100) * Math.random() + 1)).toFixed(2);
+        const ask = +(bid + Math.random() * 0.5 + 0.05).toFixed(2);
+        opts.push({
+            symbol, expiry: '20260220', strike, right,
+            name: `${symbol} 0220 ${strike}${right}`,
+            bid, ask, last: +((bid + ask) / 2).toFixed(2),
+            volume: Math.floor(Math.random() * 5000 + 100),
+        });
+    }
+    return opts;
 }
 
 // Override API for standalone mode

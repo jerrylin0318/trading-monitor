@@ -269,6 +269,53 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     color: var(--text-secondary);
 }
 
+/* Inline options in watch card */
+.opts-section {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+.opt-inline-group { margin-bottom: 8px; }
+.opt-inline-label {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    padding: 2px 0;
+}
+.opt-inline-header {
+    display: grid;
+    grid-template-columns: 24px 1fr 80px 60px 50px 50px;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+}
+.opt-inline-row {
+    display: grid;
+    grid-template-columns: 24px 1fr 80px 60px 50px 50px;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 12px;
+}
+.opt-inline-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+.opt-inline-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--blue); }
+.opt-inline-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opt-inline-ba { color: var(--text-muted); font-size: 11px; }
+.opt-inline-last { font-weight: 600; }
+.opt-inline-vol { color: var(--text-muted); font-size: 11px; }
+.opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
+
+@media (max-width: 600px) {
+    .opt-inline-header { grid-template-columns: 24px 1fr 70px 55px 50px; }
+    .opt-inline-row { grid-template-columns: 24px 1fr 70px 55px 50px; }
+    .opt-inline-vol { display: none; }
+    .opt-inline-header span:nth-child(5) { display: none; }
+}
+
 /* Signals */
 .signal-item {
     padding: 10px 16px;
