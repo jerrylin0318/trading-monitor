@@ -420,17 +420,17 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         let rows = opts.map((o, i) => `
             <div class="opt-inline-row">
                 <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}">
-                <span class="opt-inline-name">${o.name}</span>
-                <span class="opt-inline-ba">${o.bid?.toFixed(2) || '--'}/${o.ask?.toFixed(2) || '--'}</span>
+                <span class="opt-inline-strike">${o.strike}</span>
+                <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
+                <span class="opt-inline-ba">${o.bid?.toFixed(2)}/${o.ask?.toFixed(2)}</span>
                 <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
-                <span class="opt-inline-vol">${o.volume || '--'}</span>
                 <input type="number" value="1" min="1" class="opt-inline-qty">
             </div>
         `).join('');
         return `<div class="opt-inline-group">
             <div class="opt-inline-label" style="color:${color}">${label}</div>
             <div class="opt-inline-header">
-                <span></span><span>合約</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>數量</span>
+                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>數量</span>
             </div>
             ${rows}
         </div>`;
@@ -440,10 +440,10 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     const underlying = `
         <div class="opt-inline-row" style="border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px;">
             <input type="checkbox" id="opt-${watch.id}-stk">
-            <span class="opt-inline-name">📈 ${watch.symbol}（標的）</span>
+            <span class="opt-inline-strike" style="color:var(--blue);">標的</span>
+            <span class="opt-inline-name">📈 ${watch.symbol}</span>
             <span class="opt-inline-ba">--</span>
             <span class="opt-inline-last" style="color:var(--blue)">$${price}</span>
-            <span class="opt-inline-vol">--</span>
             <input type="number" value="1" min="1" class="opt-inline-qty">
         </div>`;
 
