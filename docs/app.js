@@ -368,14 +368,31 @@ function renderWatchList() {
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
                     <span class="watch-price-info">觸發區: ${zone}</span>
                 </div>
-                <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
-                    ${expanded ? '收起 ▲' : '選擇權 ▼'}
-                </button>
+                <div style="display:flex;gap:4px;">
+                    ${expanded ? `<button class="btn btn-sm" onclick="resetOptions('${w.id}')" title="依當前MA重新篩選">🔄</button>` : ''}
+                    <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
+                        ${expanded ? '收起 ▲' : '選擇權 ▼'}
+                    </button>
+                </div>
             </div>
             ${expanded ? renderInlineOptions(w, data, callOpts, putOpts, price) : ''}
         </div>`;
     }
     container.innerHTML = html;
+}
+
+function resetOptions(watchId) {
+    const data = state.latestData[watchId];
+    if (!data) return;
+    const w = state.watchList.find(x => x.id === watchId);
+    if (!w) return;
+    const base = data.current_price || 100;
+    const maVal = data.ma_value || base;
+    data.options_call = genDemoOptions(w.symbol, 'C', maVal, base);
+    data.options_put = genDemoOptions(w.symbol, 'P', maVal, base);
+    data.locked_ma = maVal;
+    renderWatchList();
+    log(`${w.symbol} 選擇權已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
 }
 
 function toggleExpand(watchId) {
@@ -419,7 +436,12 @@ function renderInlineOptions(watch, data, callOpts, putOpts, price) {
             <input type="number" value="1" min="1" class="opt-inline-qty">
         </div>`;
 
+    const lockedInfo = data.locked_ma
+        ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}（啟動時篩選，重啟重新篩選）</div>`
+        : '';
+
     return `<div class="opts-section">
+        ${lockedInfo}
         ${underlying}
         ${renderSide(callOpts, 'Call 價外5檔', 'var(--green)')}
         ${renderSide(putOpts, 'Put 價外5檔', 'var(--red)')}
@@ -600,9 +622,11 @@ function startStandaloneDemo() {
             const rising = maVal > prevMa;
             const dist = +(price - maVal).toFixed(4);
 
-            // Generate OTM options based on current MA
-            const callOpts = genDemoOptions(w.symbol, 'C', maVal, base);
-            const putOpts = genDemoOptions(w.symbol, 'P', maVal, base);
+            // Lock options at start — only generate once
+            const existing = state.latestData[w.id];
+            const callOpts = (existing && existing.options_call) ? existing.options_call : genDemoOptions(w.symbol, 'C', maVal, base);
+            const putOpts = (existing && existing.options_put) ? existing.options_put : genDemoOptions(w.symbol, 'P', maVal, base);
+            const lockedMa = (existing && existing.locked_ma) ? existing.locked_ma : maVal;
 
             state.latestData[w.id] = {
                 symbol: w.symbol, current_price: price, ma_value: maVal,
@@ -614,6 +638,7 @@ function startStandaloneDemo() {
                 last_updated: new Date().toISOString(),
                 options_call: callOpts,
                 options_put: putOpts,
+                locked_ma: lockedMa,
             };
             // 5% chance signal
             if (Math.random() < 0.03 && w.enabled) {
