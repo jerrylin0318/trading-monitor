@@ -193,14 +193,16 @@ function quickAddFromFav(symbol, secType, exchange, currency) {
 async function addWatch() {
     const symbol = document.getElementById('w-symbol').value.trim().toUpperCase();
     if (!symbol) return;
+    const secType = document.getElementById('w-sectype').value;
     const item = {
         symbol,
-        sec_type: document.getElementById('w-sectype').value,
+        sec_type: secType,
         strategy: document.getElementById('w-strategy').value,
         exchange: document.getElementById('w-exchange').value.trim() || 'SMART',
         currency: document.getElementById('w-currency').value.trim() || 'USD',
         ma_period: parseInt(document.getElementById('w-ma-period').value) || 21,
         n_points: parseFloat(document.getElementById('w-n-points').value) || 5,
+        contract_month: secType === 'FUT' ? document.getElementById('w-contract').value : null,
         enabled: true,
     };
     const res = await api('/api/watch', 'POST', item);
@@ -343,7 +345,7 @@ function renderWatchList() {
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
             <div class="watch-top-row">
-                <div class="watch-symbol">${w.symbol} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span> <span class="strategy-tag ${w.strategy || 'BOTH'}">${w.strategy === 'BUY' ? '📈 買' : w.strategy === 'SELL' ? '📉 賣' : '↔️ 雙向'}</span></div>
+                <div class="watch-symbol">${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span> <span class="strategy-tag ${w.strategy || 'BOTH'}">${w.strategy === 'BUY' ? '📈 買' : w.strategy === 'SELL' ? '📉 賣' : '↔️ 雙向'}</span></div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
@@ -386,6 +388,7 @@ function resetOptions(watchId) {
     data.options_call = genDemoOptions(w.symbol, 'C', maVal, base);
     data.options_put = genDemoOptions(w.symbol, 'P', maVal, base);
     data.locked_ma = maVal;
+    data.selected_expiry = Object.keys(data.options_call)[0];
     renderWatchList();
     log(`${w.symbol} 選擇權已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
 }
@@ -395,10 +398,23 @@ function toggleExpand(watchId) {
     renderWatchList();
 }
 
-function renderInlineOptions(watch, data, callOpts, putOpts, price) {
-    if (!callOpts.length && !putOpts.length) {
+function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
+    const expiries = Object.keys(callOptsData || {});
+    if (!expiries.length) {
         return '<div class="opts-section"><div class="empty-state">尚無選擇權數據</div></div>';
     }
+
+    const selectedExpiry = data.selected_expiry || expiries[0];
+    const callOpts = callOptsData[selectedExpiry]?.options || [];
+    const putOpts = putOptsData[selectedExpiry]?.options || [];
+
+    // Expiry tabs
+    const expiryTabs = expiries.map(exp => {
+        const info = callOptsData[exp]?.expiry || {};
+        const isActive = exp === selectedExpiry;
+        return `<button class="expiry-tab ${isActive ? 'active' : ''}" onclick="selectExpiry('${watch.id}','${exp}')">${info.label || exp}${isActive ? ' ✓' : ''}</button>`;
+    }).join('');
+
     const renderSide = (opts, label, color) => {
         if (!opts.length) return '';
         let rows = opts.map((o, i) => `
@@ -432,7 +448,7 @@ function renderInlineOptions(watch, data, callOpts, putOpts, price) {
         </div>`;
 
     const lockedInfo = data.locked_ma
-        ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}（啟動時篩選，重啟重新篩選）</div>`
+        ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}</div>`
         : '';
 
     const strategy = watch.strategy || 'BOTH';
@@ -440,11 +456,22 @@ function renderInlineOptions(watch, data, callOpts, putOpts, price) {
     const showPut = strategy === 'SELL' || strategy === 'BOTH';
 
     return `<div class="opts-section">
+        <div class="expiry-tabs-row">
+            <span style="font-size:11px;color:var(--text-muted);margin-right:8px;">到期日:</span>
+            ${expiryTabs}
+        </div>
         ${lockedInfo}
         ${underlying}
         ${showCall ? renderSide(callOpts, 'Call 價外5檔（買進用）', 'var(--green)') : ''}
         ${showPut ? renderSide(putOpts, 'Put 價外5檔（賣出用）', 'var(--red)') : ''}
     </div>`;
+}
+
+function selectExpiry(watchId, expiry) {
+    if (state.latestData[watchId]) {
+        state.latestData[watchId].selected_expiry = expiry;
+        renderWatchList();
+    }
 }
 
 function renderSignals() {
@@ -623,9 +650,10 @@ function startStandaloneDemo() {
 
             // Lock options at start — only generate once
             const existing = state.latestData[w.id];
-            const callOpts = (existing && existing.options_call) ? existing.options_call : genDemoOptions(w.symbol, 'C', maVal, base);
-            const putOpts = (existing && existing.options_put) ? existing.options_put : genDemoOptions(w.symbol, 'P', maVal, base);
+            const callOptsData = (existing && existing.options_call) ? existing.options_call : genDemoOptions(w.symbol, 'C', maVal, base);
+            const putOptsData = (existing && existing.options_put) ? existing.options_put : genDemoOptions(w.symbol, 'P', maVal, base);
             const lockedMa = (existing && existing.locked_ma) ? existing.locked_ma : maVal;
+            const selectedExpiry = (existing && existing.selected_expiry) ? existing.selected_expiry : Object.keys(callOptsData)[0];
 
             state.latestData[w.id] = {
                 symbol: w.symbol, current_price: price, ma_value: maVal,
@@ -635,9 +663,10 @@ function startStandaloneDemo() {
                 buy_zone: rising ? `${maVal.toFixed(2)} ~ ${(maVal + w.n_points).toFixed(2)}` : null,
                 sell_zone: !rising ? `${(maVal - w.n_points).toFixed(2)} ~ ${maVal.toFixed(2)}` : null,
                 last_updated: new Date().toISOString(),
-                options_call: callOpts,
-                options_put: putOpts,
+                options_call: callOptsData,
+                options_put: putOptsData,
                 locked_ma: lockedMa,
+                selected_expiry: selectedExpiry,
             };
             // 5% chance signal — only if matches strategy direction
             const strategy = w.strategy || 'BOTH';
@@ -658,22 +687,28 @@ function startStandaloneDemo() {
 }
 
 function genDemoOptions(symbol, right, maVal, basePrice) {
+    const expiries = getNearestExpiries(2);
     const step = basePrice > 1000 ? 25 : basePrice > 100 ? 5 : 1;
     const baseStrike = Math.round(maVal / step) * step;
-    const opts = [];
-    for (let i = 0; i < 5; i++) {
-        const strike = right === 'C' ? baseStrike + (i + 1) * step : baseStrike - (i + 1) * step;
-        const dist = Math.abs(strike - basePrice);
-        const bid = +(Math.max(0.5, (15 - dist / basePrice * 100) * Math.random() + 1)).toFixed(2);
-        const ask = +(bid + Math.random() * 0.5 + 0.05).toFixed(2);
-        opts.push({
-            symbol, expiry: '20260220', strike, right,
-            name: `${symbol} 0220 ${strike}${right}`,
-            bid, ask, last: +((bid + ask) / 2).toFixed(2),
-            volume: Math.floor(Math.random() * 5000 + 100),
-        });
+    const result = {};
+    
+    for (const exp of expiries) {
+        const opts = [];
+        for (let i = 0; i < 5; i++) {
+            const strike = right === 'C' ? baseStrike + (i + 1) * step : baseStrike - (i + 1) * step;
+            const dist = Math.abs(strike - basePrice);
+            const bid = +(Math.max(0.5, (15 - dist / basePrice * 100) * Math.random() + 1)).toFixed(2);
+            const ask = +(bid + Math.random() * 0.5 + 0.05).toFixed(2);
+            opts.push({
+                symbol, expiry: exp.value, expiryLabel: exp.label, strike, right,
+                name: `${symbol} ${exp.label} ${strike}${right}`,
+                bid, ask, last: +((bid + ask) / 2).toFixed(2),
+                volume: Math.floor(Math.random() * 5000 + 100),
+            });
+        }
+        result[exp.value] = { expiry: exp, options: opts };
     }
-    return opts;
+    return result;
 }
 
 // Override API for standalone mode
@@ -740,4 +775,84 @@ window.addEventListener('load', () => {
     document.getElementById('w-symbol').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') addWatch();
     });
+
+    // Show/hide contract month for futures
+    document.getElementById('w-sectype').addEventListener('change', updateContractDropdown);
+    updateContractDropdown();
 });
+
+function updateContractDropdown() {
+    const secType = document.getElementById('w-sectype').value;
+    const group = document.getElementById('w-contract-group');
+    const select = document.getElementById('w-contract');
+    if (secType === 'FUT') {
+        group.style.display = 'block';
+        const months = getNearestContractMonths(2);
+        select.innerHTML = months.map((m, i) => 
+            `<option value="${m.value}">${m.label}${i === 0 ? ' (近月)' : ' (次近月)'}</option>`
+        ).join('');
+    } else {
+        group.style.display = 'none';
+    }
+}
+
+function formatContractMonth(yyyymm) {
+    if (!yyyymm) return '';
+    const y = yyyymm.slice(0, 4);
+    const m = parseInt(yyyymm.slice(4, 6));
+    const codes = { 3: 'H', 6: 'M', 9: 'U', 12: 'Z' };
+    const code = codes[m] || '';
+    return `${y}/${String(m).padStart(2, '0')}${code ? ` (${code}${y.slice(-2)})` : ''}`;
+}
+
+function getNearestExpiries(count) {
+    // Get nearest weekly/monthly option expiries (Fridays)
+    const results = [];
+    const now = new Date();
+    let d = new Date(now);
+    // Find next Friday
+    while (d.getDay() !== 5) d.setDate(d.getDate() + 1);
+    // If today is Friday and market closed, skip to next
+    if (d.toDateString() === now.toDateString() && now.getHours() >= 16) {
+        d.setDate(d.getDate() + 7);
+    }
+    for (let i = 0; i < count; i++) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        results.push({
+            value: `${yyyy}${mm}${dd}`,
+            label: `${mm}/${dd}`,
+            full: `${yyyy}/${mm}/${dd}`
+        });
+        d.setDate(d.getDate() + 7);
+    }
+    return results;
+}
+
+function getNearestContractMonths(count) {
+    // Futures typically have quarterly contracts: Mar(H), Jun(M), Sep(U), Dec(Z)
+    const codes = ['H', 'M', 'U', 'Z']; // Mar, Jun, Sep, Dec
+    const codeMonths = [3, 6, 9, 12];
+    const now = new Date();
+    let year = now.getFullYear();
+    let month = now.getMonth() + 1;
+    const results = [];
+    
+    while (results.length < count) {
+        for (let i = 0; i < codeMonths.length && results.length < count; i++) {
+            const cm = codeMonths[i];
+            const cy = cm < month ? year + 1 : year;
+            if (cy > year || cm >= month) {
+                const yy = String(cy).slice(-2);
+                const value = `${cy}${String(cm).padStart(2, '0')}`;
+                const label = `${cy}/${String(cm).padStart(2, '0')} (${codes[i]}${yy})`;
+                if (!results.find(r => r.value === value)) {
+                    results.push({ value, label });
+                }
+            }
+        }
+        year++;
+    }
+    return results;
+}
