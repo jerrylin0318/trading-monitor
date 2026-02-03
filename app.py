@@ -5,6 +5,10 @@ import json
 import logging
 import os
 import uuid
+
+# Patch asyncio for ib_insync compatibility
+from ib_insync import util
+util.patchAsyncio()
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -84,6 +88,7 @@ def save_config():
 # --- WebSocket broadcast ---
 async def broadcast(msg: Dict[str, Any]):
     """Send message to all connected WebSocket clients."""
+    global ws_clients
     if not ws_clients:
         return
     text = json.dumps(msg, default=str)

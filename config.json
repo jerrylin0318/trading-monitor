@@ -1,0 +1,25 @@
+{
+  "watch_list": [
+    {
+      "id": "98b72c3e",
+      "symbol": "SPY",
+      "sec_type": "STK",
+      "exchange": "SMART",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true
+    },
+    {
+      "id": "e784072f",
+      "symbol": "SPY",
+      "sec_type": "STK",
+      "exchange": "SMART",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true
+    }
+  ],
+  "saved_at": "2026-02-03T04:35:43.218057"
+}
