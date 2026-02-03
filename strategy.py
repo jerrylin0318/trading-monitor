@@ -6,8 +6,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any
 
-import pandas as pd
-import numpy as np
+try:
+    import pandas as pd
+    import numpy as np
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
 
 logger = logging.getLogger(__name__)
 
@@ -87,27 +91,43 @@ class StrategyEngine:
                     setattr(item, k, v)
             logger.info("Updated watch %s: %s", watch_id, updates)
 
-    def calculate_ma(self, df: pd.DataFrame, period: int) -> pd.Series:
-        """Calculate Simple Moving Average."""
-        return df["close"].rolling(window=period).mean()
+    def calculate_ma(self, df, period: int):
+        """Calculate Simple Moving Average. Works with pandas DataFrame or list of dicts."""
+        if HAS_PANDAS and hasattr(df, 'rolling'):
+            return df["close"].rolling(window=period).mean()
+        # Fallback: plain Python
+        closes = [row["close"] for row in df] if isinstance(df, list) else list(df["close"])
+        result = [None] * len(closes)
+        for i in range(period - 1, len(closes)):
+            result[i] = sum(closes[i - period + 1:i + 1]) / period
+        return result
 
-    def check_signal(self, df: pd.DataFrame, watch: WatchItem, current_price: float) -> Optional[Signal]:
+    def check_signal(self, df, watch: WatchItem, current_price: float) -> Optional[Signal]:
         """
         Check if a signal should trigger.
 
         BUY: MA is rising AND price is within N points above MA (MA <= price <= MA + N)
         SELL: MA is falling AND price is within N points below MA (MA - N <= price <= MA)
         """
-        if not watch.enabled or df is None or len(df) < watch.ma_period + 1:
+        if not watch.enabled or df is None:
+            return None
+
+        length = len(df) if hasattr(df, '__len__') else 0
+        if length < watch.ma_period + 1:
             return None
 
         ma = self.calculate_ma(df, watch.ma_period)
 
-        if len(ma) < 2 or pd.isna(ma.iloc[-1]) or pd.isna(ma.iloc[-2]):
-            return None
-
-        current_ma = ma.iloc[-1]
-        prev_ma = ma.iloc[-2]
+        if HAS_PANDAS and hasattr(ma, 'iloc'):
+            if len(ma) < 2 or pd.isna(ma.iloc[-1]) or pd.isna(ma.iloc[-2]):
+                return None
+            current_ma = ma.iloc[-1]
+            prev_ma = ma.iloc[-2]
+        else:
+            if len(ma) < 2 or ma[-1] is None or ma[-2] is None:
+                return None
+            current_ma = ma[-1]
+            prev_ma = ma[-2]
         ma_rising = current_ma > prev_ma
         ma_falling = current_ma < prev_ma
 
