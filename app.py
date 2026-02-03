@@ -5,20 +5,15 @@ import json
 import logging
 import os
 import uuid
-
-# Patch asyncio for ib_insync compatibility
-from ib_insync import util
-util.patchAsyncio()
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
-from typing import Optional
 
 from strategy import StrategyEngine, WatchItem, SignalType
 
@@ -26,6 +21,9 @@ from strategy import StrategyEngine, WatchItem, SignalType
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() in ("true", "1", "yes")
 
 if not DEMO_MODE:
+    # Patch asyncio for ib_insync compatibility
+    from ib_insync import util
+    util.patchAsyncio()
     from ib_manager import IBManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
