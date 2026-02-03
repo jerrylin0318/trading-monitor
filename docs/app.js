@@ -9,6 +9,7 @@ let state = {
     watchList: [],
     expandedWatch: null,
     signals: [],
+    optSelections: {},  // { watchId: { optId: { checked, amount }, exitProfit: bool, ... } }
     latestData: {},
     account: {},
     positions: [],
@@ -415,18 +416,24 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         return `<button class="expiry-tab ${isActive ? 'active' : ''}" onclick="selectExpiry('${watch.id}','${exp}')">${info.label || exp}${isActive ? ' ✓' : ''}</button>`;
     }).join('');
 
+    const sel = state.optSelections[watch.id] || {};
     const renderSide = (opts, label, color) => {
         if (!opts.length) return '';
-        let rows = opts.map((o, i) => `
+        let rows = opts.map((o, i) => {
+            const optKey = `${o.right}-${i}`;
+            const optSel = sel[optKey] || {};
+            const checked = optSel.checked ? 'checked' : '';
+            const amt = optSel.amount || 1000;
+            return `
             <div class="opt-inline-row">
-                <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}" class="opt-check" data-ask="${o.ask}">
+                <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}" class="opt-check" data-ask="${o.ask}" data-key="${optKey}" ${checked} onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
                 <span class="opt-inline-strike">${o.strike}</span>
                 <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
                 <span class="opt-inline-ba">${o.bid?.toFixed(2)}/${o.ask?.toFixed(2)}</span>
                 <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
-                <input type="number" value="1000" min="100" step="100" class="opt-inline-amt" placeholder="金額">
-            </div>
-        `).join('');
+                <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+            </div>`;
+        }).join('');
         return `<div class="opt-inline-group">
             <div class="opt-inline-label" style="color:${color}">${label}</div>
             <div class="opt-inline-header">
@@ -437,39 +444,46 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     };
 
     // Also show underlying as tradeable
+    const stkSel = sel['stk'] || {};
+    const stkChecked = stkSel.checked ? 'checked' : '';
+    const stkAmt = stkSel.amount || 5000;
     const underlying = `
         <div class="opt-inline-row" style="border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px;">
-            <input type="checkbox" id="opt-${watch.id}-stk" class="opt-check" data-ask="${price}">
+            <input type="checkbox" id="opt-${watch.id}-stk" class="opt-check" data-ask="${price}" data-key="stk" ${stkChecked} onchange="saveOptSel('${watch.id}','stk',this.checked)">
             <span class="opt-inline-strike" style="color:var(--blue);">標的</span>
             <span class="opt-inline-name">📈 ${watch.symbol}</span>
             <span class="opt-inline-ba">--</span>
             <span class="opt-inline-last" style="color:var(--blue)">$${price}</span>
-            <input type="number" value="5000" min="100" step="100" class="opt-inline-amt" placeholder="金額">
+            <input type="number" value="${stkAmt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','stk',this.value)">
         </div>`;
     
-    // Exit strategy configuration
+    // Exit strategy configuration (preserve state)
+    const ex = sel.exit || {};
     const exitConfig = `
         <div class="exit-config">
             <div class="exit-config-title">📤 平倉策略（可多選）</div>
             <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-profit"> 1️⃣ 限價止盈</label>
-                <span>成交價 <select id="exit-${watch.id}-profit-dir"><option value="+">+</option><option value="-">-</option></select>
-                <input type="number" id="exit-${watch.id}-profit-pts" value="0.5" step="0.1" min="0" class="exit-input"> 點</span>
-            </div>
-            <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-time"> 2️⃣ 時間平倉</label>
-                <input type="time" id="exit-${watch.id}-time-val" value="15:55" class="exit-input">
-            </div>
-            <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-ma"> 3️⃣ 均線平倉</label>
-                <span>標的 <select id="exit-${watch.id}-ma-cond">
-                    <option value="above">高於</option>
-                    <option value="below">低於</option>
-                </select> MA <select id="exit-${watch.id}-ma-dir">
-                    <option value="+">+</option>
-                    <option value="-">-</option>
+                <label><input type="checkbox" id="exit-${watch.id}-profit" ${ex.profit ? 'checked' : ''} onchange="saveExitSel('${watch.id}','profit',this.checked)"> 1️⃣ 限價止盈</label>
+                <span>成交價 <select id="exit-${watch.id}-profit-dir" onchange="saveExitVal('${watch.id}','profitDir',this.value)">
+                    <option value="+" ${ex.profitDir === '+' || !ex.profitDir ? 'selected' : ''}>+</option>
+                    <option value="-" ${ex.profitDir === '-' ? 'selected' : ''}>-</option>
                 </select>
-                <input type="number" id="exit-${watch.id}-ma-pts" value="5" step="0.5" min="0" class="exit-input"> 點</span>
+                <input type="number" id="exit-${watch.id}-profit-pts" value="${ex.profitPts || 0.5}" step="0.1" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','profitPts',this.value)"> 點</span>
+            </div>
+            <div class="exit-option">
+                <label><input type="checkbox" id="exit-${watch.id}-time" ${ex.time ? 'checked' : ''} onchange="saveExitSel('${watch.id}','time',this.checked)"> 2️⃣ 時間平倉</label>
+                <input type="time" id="exit-${watch.id}-time-val" value="${ex.timeVal || '15:55'}" class="exit-input" onchange="saveExitVal('${watch.id}','timeVal',this.value)">
+            </div>
+            <div class="exit-option">
+                <label><input type="checkbox" id="exit-${watch.id}-ma" ${ex.ma ? 'checked' : ''} onchange="saveExitSel('${watch.id}','ma',this.checked)"> 3️⃣ 均線平倉</label>
+                <span>標的 <select id="exit-${watch.id}-ma-cond" onchange="saveExitVal('${watch.id}','maCond',this.value)">
+                    <option value="above" ${ex.maCond === 'above' || !ex.maCond ? 'selected' : ''}>高於</option>
+                    <option value="below" ${ex.maCond === 'below' ? 'selected' : ''}>低於</option>
+                </select> MA <select id="exit-${watch.id}-ma-dir" onchange="saveExitVal('${watch.id}','maDir',this.value)">
+                    <option value="+" ${ex.maDir === '+' || !ex.maDir ? 'selected' : ''}>+</option>
+                    <option value="-" ${ex.maDir === '-' ? 'selected' : ''}>-</option>
+                </select>
+                <input type="number" id="exit-${watch.id}-ma-pts" value="${ex.maPts || 5}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','maPts',this.value)"> 點</span>
             </div>
             <div class="exit-actions">
                 <button class="btn btn-sm btn-success" onclick="placeOrder('${watch.id}')">📥 市價下單</button>
@@ -504,51 +518,72 @@ function selectExpiry(watchId, expiry) {
     }
 }
 
+// Save/restore option selections
+function saveOptSel(watchId, key, checked) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId][key]) state.optSelections[watchId][key] = {};
+    state.optSelections[watchId][key].checked = checked;
+}
+function saveOptAmt(watchId, key, amount) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId][key]) state.optSelections[watchId][key] = {};
+    state.optSelections[watchId][key].amount = parseFloat(amount);
+}
+function saveExitSel(watchId, key, checked) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId].exit) state.optSelections[watchId].exit = {};
+    state.optSelections[watchId].exit[key] = checked;
+}
+function saveExitVal(watchId, key, value) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId].exit) state.optSelections[watchId].exit = {};
+    state.optSelections[watchId].exit[key] = value;
+}
+
 function placeOrder(watchId) {
     const w = state.watchList.find(x => x.id === watchId);
     if (!w) return;
 
-    // Collect checked options
-    const checked = document.querySelectorAll(`#opt-${watchId}-stk:checked, input[id^="opt-${watchId}-"]:checked`);
-    if (checked.length === 0) {
+    const sel = state.optSelections[watchId] || {};
+    const ex = sel.exit || {};
+
+    // Collect checked options from saved state
+    const checkedOpts = Object.entries(sel).filter(([k, v]) => k !== 'exit' && v.checked);
+    if (checkedOpts.length === 0) {
         log('請先勾選要交易的商品', 'warning');
         return;
     }
 
-    // Collect exit strategies
+    // Collect exit strategies from saved state
     const exitStrategies = [];
-    if (document.getElementById(`exit-${watchId}-profit`)?.checked) {
-        const dir = document.getElementById(`exit-${watchId}-profit-dir`).value;
-        const pts = document.getElementById(`exit-${watchId}-profit-pts`).value;
-        exitStrategies.push(`限價止盈: 成交價${dir}${pts}點`);
+    if (ex.profit) {
+        exitStrategies.push(`限價止盈: 成交價${ex.profitDir || '+'}${ex.profitPts || 0.5}點`);
     }
-    if (document.getElementById(`exit-${watchId}-time`)?.checked) {
-        const time = document.getElementById(`exit-${watchId}-time-val`).value;
-        exitStrategies.push(`時間平倉: ${time}`);
+    if (ex.time) {
+        exitStrategies.push(`時間平倉: ${ex.timeVal || '15:55'}`);
     }
-    if (document.getElementById(`exit-${watchId}-ma`)?.checked) {
-        const cond = document.getElementById(`exit-${watchId}-ma-cond`).value === 'above' ? '高於' : '低於';
-        const dir = document.getElementById(`exit-${watchId}-ma-dir`).value;
-        const pts = document.getElementById(`exit-${watchId}-ma-pts`).value;
-        exitStrategies.push(`均線平倉: 標的${cond}MA${dir}${pts}點`);
+    if (ex.ma) {
+        const cond = ex.maCond === 'below' ? '低於' : '高於';
+        exitStrategies.push(`均線平倉: 標的${cond}MA${ex.maDir || '+'}${ex.maPts || 5}點`);
     }
 
     // Calculate quantities from amounts
     const orders = [];
-    checked.forEach(chk => {
-        const row = chk.closest('.opt-inline-row');
-        const amtInput = row.querySelector('.opt-inline-amt');
-        const amount = parseFloat(amtInput?.value) || 1000;
-        const ask = parseFloat(chk.dataset.ask) || 1;
-        const qty = Math.floor(amount / (ask * 100)); // Options are per 100 shares
-        const strike = row.querySelector('.opt-inline-strike')?.textContent || '標的';
-        orders.push({ strike, amount, ask, qty: Math.max(qty, 1) });
+    checkedOpts.forEach(([key, opt]) => {
+        const amount = opt.amount || 1000;
+        // Get ask from DOM as it updates
+        const chk = document.querySelector(`input[data-key="${key}"]`);
+        const ask = parseFloat(chk?.dataset.ask) || 1;
+        const isStock = key === 'stk';
+        const qty = isStock ? Math.floor(amount / ask) : Math.floor(amount / (ask * 100));
+        orders.push({ key, amount, ask, qty: Math.max(qty, 1) });
     });
 
     // Log the order (demo mode)
     log(`📥 下單 ${w.symbol}:`, 'success');
     orders.forEach(o => {
-        log(`   ${o.strike} | 金額$${o.amount} ÷ Ask$${o.ask} = ${o.qty}口 市價買入`, 'info');
+        const label = o.key === 'stk' ? '標的' : o.key;
+        log(`   ${label} | 金額$${o.amount} ÷ Ask$${o.ask} = ${o.qty}口 市價買入`, 'info');
     });
     if (exitStrategies.length) {
         log(`   平倉策略: ${exitStrategies.join(', ')}`, 'info');
