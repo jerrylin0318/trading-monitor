@@ -555,6 +555,13 @@ async function api(path, method = 'GET', body = null) {
 window.addEventListener('load', () => {
     log('Trading Monitor 已載入', 'info');
 
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').then(() => {
+            log('PWA Service Worker 已註冊', 'info');
+        }).catch(e => log('SW 註冊失敗: ' + e.message, 'warning'));
+    }
+
     // Try WebSocket, fall back to standalone demo
     try {
         connectWS();
