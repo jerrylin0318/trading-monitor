@@ -181,19 +181,13 @@ function removeFavAndRender(symbol, secType) {
     renderFavorites();
 }
 
-async function quickAddFromFav(symbol, secType, exchange, currency) {
-    const maPeriod = parseInt(document.getElementById('w-ma-period').value) || 21;
-    const nPoints = parseFloat(document.getElementById('w-n-points').value) || 5;
-    const item = {
-        symbol, sec_type: secType, exchange: exchange || 'SMART',
-        currency: currency || 'USD', ma_period: maPeriod, n_points: nPoints, enabled: true,
-    };
-    const res = await api('/api/watch', 'POST', item);
-    if (res) {
-        if (!standaloneMode) state.watchList.push(res);
-        log(`已從收藏新增: ${symbol}`, 'success');
-        renderWatchList();
-    }
+function quickAddFromFav(symbol, secType, exchange, currency) {
+    // Fill form fields, let user edit before confirming
+    document.getElementById('w-symbol').value = symbol;
+    document.getElementById('w-sectype').value = secType || 'STK';
+    document.getElementById('w-exchange').value = exchange || 'SMART';
+    document.getElementById('w-currency').value = currency || 'USD';
+    document.getElementById('w-symbol').focus();
 }
 
 async function addWatch() {
