@@ -155,8 +155,8 @@ def _group_options(flat_list: list) -> Dict:
     return grouped
 
 
-async def cache_options_for_watch(watch_id: str, watch, ma_price: float):
-    """Fetch and cache Call+Put option contracts for a watch item."""
+async def cache_options_for_watch(watch_id: str, watch, ma_price: float, fetch_prices: bool = True):
+    """Fetch and cache Call+Put option contracts, optionally with initial prices."""
     try:
         calls = await ib.get_option_chain(
             watch.symbol, watch.sec_type, watch.exchange, watch.currency,
@@ -168,6 +168,15 @@ async def cache_options_for_watch(watch_id: str, watch, ma_price: float):
             ma_price=ma_price, right="P", num_strikes=5,
             contract_month=watch.contract_month
         )
+        
+        # Fetch initial prices (batch snapshot)
+        if fetch_prices and (calls or puts):
+            if calls:
+                calls = await ib.refresh_option_prices(calls)
+            if puts:
+                puts = await ib.refresh_option_prices(puts)
+            logger.info("Fetched initial prices for %s options", watch.symbol)
+        
         _options_cache[watch_id] = {
             "call_raw": calls, "put_raw": puts,
             "call": _group_options(calls), "put": _group_options(puts),
@@ -270,7 +279,7 @@ async def monitor_loop():
                 await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
 
                 if signal:
-                    # On signal: refresh option prices (batch snapshot)
+                    # On signal: refresh option prices (batch snapshot) for order-ready data
                     cache = _options_cache.get(watch_id)
                     if cache:
                         refreshed_calls = await ib.refresh_option_prices(cache["call_raw"])
@@ -279,6 +288,9 @@ async def monitor_loop():
                         cache["put"] = _group_options(refreshed_puts)
                         data["options_call"] = cache["call"]
                         data["options_put"] = cache["put"]
+                        # Push updated options data
+                        await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+                        logger.info("Signal triggered: refreshed %s option prices", watch.symbol)
 
                     await broadcast({
                         "type": "signal",
@@ -530,6 +542,28 @@ async def refresh_watch_options(watch_id: str):
         await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
     
     return {"ok": True, "calls": len(cache.get("call_raw", [])), "puts": len(cache.get("put_raw", []))}
+
+
+@app.post("/api/options/prices/{watch_id}")
+async def update_option_prices(watch_id: str):
+    """Update prices only for cached options (no re-fetch contracts)."""
+    if DEMO_MODE:
+        return {"ok": True}
+    cache = _options_cache.get(watch_id)
+    if not cache:
+        return {"error": "No cached options"}
+    
+    refreshed_calls = await ib.refresh_option_prices(cache["call_raw"])
+    refreshed_puts = await ib.refresh_option_prices(cache["put_raw"])
+    cache["call"] = _group_options(refreshed_calls)
+    cache["put"] = _group_options(refreshed_puts)
+    
+    data = engine.latest_data.get(watch_id, {})
+    data["options_call"] = cache["call"]
+    data["options_put"] = cache["put"]
+    
+    await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+    return {"ok": True}
 
 
 def _demo_options(symbol: str, right: str, ma_price: float, num_strikes: int = 5):

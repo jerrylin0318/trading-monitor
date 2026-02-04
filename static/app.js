@@ -340,7 +340,23 @@ function renderWatchList() {
         const price = data.current_price ? data.current_price.toFixed(2) : '--';
         const ma = data.ma_value ? data.ma_value.toFixed(2) : '--';
         const dist = data.distance_from_ma != null ? data.distance_from_ma.toFixed(2) : '--';
-        const zone = data.buy_zone || data.sell_zone || '--';
+        const stratClass = w.strategy === 'BUY' ? 'BUY' : 'SELL';
+        const stratLabel = w.strategy === 'BUY' ? '📈 做多' : '📉 做空';
+        
+        // 觸發區 + 有效性判斷
+        const maRight = (w.strategy === 'BUY' && dir === 'RISING') || (w.strategy === 'SELL' && dir === 'FALLING');
+        let zone = '--';
+        let zoneActive = false;
+        if (data.ma_value) {
+            if (w.strategy === 'BUY') {
+                zone = `${data.ma_value.toFixed(2)} ~ ${(data.ma_value + w.n_points).toFixed(2)}`;
+                zoneActive = maRight && data.current_price >= data.ma_value && data.current_price <= data.ma_value + w.n_points;
+            } else {
+                zone = `${(data.ma_value - w.n_points).toFixed(2)} ~ ${data.ma_value.toFixed(2)}`;
+                zoneActive = maRight && data.current_price >= data.ma_value - w.n_points && data.current_price <= data.ma_value;
+            }
+        }
+        const zoneStatus = !data.ma_value ? '' : zoneActive ? '🟢' : maRight ? '🟡' : '⚪';
 
         const callOpts = data.options_call || [];
         const putOpts = data.options_put || [];
@@ -349,7 +365,10 @@ function renderWatchList() {
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
             <div class="watch-top-row">
-                <div class="watch-symbol">${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span> <span class="strategy-tag ${w.strategy || 'BOTH'}">${w.strategy === 'BUY' ? '📈 買' : w.strategy === 'SELL' ? '📉 賣' : '↔️ 雙向'}</span></div>
+                <div class="watch-symbol">
+                    <span class="strategy-badge ${stratClass}">${stratLabel}</span>
+                    ${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span>
+                </div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
@@ -367,10 +386,10 @@ function renderWatchList() {
             <div class="watch-bottom-row">
                 <div class="watch-ma-info">
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
-                    <span class="watch-price-info">觸發區: ${zone}</span>
+                    <span class="trigger-zone ${zoneActive ? 'active' : maRight ? 'ready' : ''}" title="${maRight ? (zoneActive ? '條件滿足！' : 'MA方向正確，等待價格進入') : 'MA方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
                 </div>
                 <div style="display:flex;gap:4px;">
-                    ${expanded ? `<button class="btn btn-sm" onclick="resetOptions('${w.id}')" title="依當前MA重新篩選">🔄</button>` : ''}
+                    ${expanded ? `<button class="btn btn-sm" onclick="updateOptionPrices('${w.id}')" title="更新報價">🔄</button>` : ''}
                     <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
                         ${expanded ? '收起 ▲' : '選擇權 ▼'}
                     </button>
@@ -417,6 +436,22 @@ async function resetOptions(watchId) {
     }
 }
 
+async function updateOptionPrices(watchId) {
+    const w = state.watchList.find(x => x.id === watchId);
+    if (!w) return;
+    log(`正在更新 ${w.symbol} 報價...`, 'info');
+    try {
+        const res = await api(`/api/options/prices/${watchId}`, 'POST');
+        if (res?.ok) {
+            log(`${w.symbol} 報價已更新`, 'success');
+        } else {
+            log(`更新失敗: ${res?.error || '未知'}`, 'error');
+        }
+    } catch (e) {
+        log(`更新失敗: ${e.message}`, 'error');
+    }
+}
+
 function toggleExpand(watchId) {
     if (state.expandedWatch === watchId) {
         state.expandedWatch = null;
@@ -433,8 +468,8 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     }
 
     const selectedExpiry = data.selected_expiry || expiries[0];
-    const callOpts = callOptsData[selectedExpiry]?.options || [];
-    const putOpts = putOptsData[selectedExpiry]?.options || [];
+    const callOpts = (callOptsData[selectedExpiry]?.options || []).slice().sort((a, b) => b.strike - a.strike);
+    const putOpts = (putOptsData[selectedExpiry]?.options || []).slice().sort((a, b) => b.strike - a.strike);
 
     // Expiry tabs
     const expiryTabs = expiries.map(exp => {
