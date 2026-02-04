@@ -7,7 +7,9 @@ let state = {
     monitoring: false,
     demoMode: false,
     watchList: [],
+    expandedWatch: null,
     signals: [],
+    optSelections: {},  // { watchId: { optId: { checked, amount }, exitProfit: bool, ... } }
     latestData: {},
     account: {},
     positions: [],
@@ -93,7 +95,7 @@ function handleMessage(msg) {
 }
 
 // ─── API calls ───
-async function api(path, method = 'GET', body = null) {
+async function _realApi(path, method = 'GET', body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     try {
@@ -103,6 +105,9 @@ async function api(path, method = 'GET', body = null) {
         log(`API 錯誤: ${e.message}`, 'error');
         return null;
     }
+}
+async function api(path, method = 'GET', body = null) {
+    return _realApi(path, method, body);
 }
 
 async function toggleConnect() {
@@ -150,28 +155,68 @@ async function toggleMonitor() {
 function showAddWatch() {
     document.getElementById('add-watch-form').style.display = 'block';
     document.getElementById('w-symbol').focus();
+    renderFavorites();
 }
 function hideAddWatch() {
     document.getElementById('add-watch-form').style.display = 'none';
+    document.getElementById('favorites-bar').style.display = 'none';
+}
+
+function renderFavorites() {
+    const favs = loadFavorites();
+    const bar = document.getElementById('favorites-bar');
+    const chips = document.getElementById('fav-chips');
+    if (favs.length === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+    bar.style.display = 'block';
+    chips.innerHTML = '<span style="font-size:11px;color:var(--text-muted);">收藏：</span>' +
+        favs.map(f => `
+            <span class="fav-chip" onclick="quickAddFromFav('${f.symbol}','${f.sec_type}','${f.exchange}','${f.currency}')">
+                ${f.symbol} <span class="type-tag">${f.sec_type}</span>
+                <span class="remove-fav" onclick="event.stopPropagation();removeFavAndRender('${f.symbol}','${f.sec_type}')" title="取消收藏">×</span>
+            </span>
+        `).join('');
+}
+
+function removeFavAndRender(symbol, secType) {
+    removeFavorite(symbol, secType);
+    renderFavorites();
+}
+
+function quickAddFromFav(symbol, secType, exchange, currency) {
+    // Fill form fields, let user edit before confirming
+    document.getElementById('w-symbol').value = symbol;
+    document.getElementById('w-sectype').value = secType || 'STK';
+    document.getElementById('w-exchange').value = exchange || 'SMART';
+    document.getElementById('w-currency').value = currency || 'USD';
+    document.getElementById('w-symbol').focus();
 }
 
 async function addWatch() {
     const symbol = document.getElementById('w-symbol').value.trim().toUpperCase();
     if (!symbol) return;
+    const secType = document.getElementById('w-sectype').value;
     const item = {
         symbol,
-        sec_type: document.getElementById('w-sectype').value,
+        sec_type: secType,
+        strategy: document.getElementById('w-strategy').value,
         exchange: document.getElementById('w-exchange').value.trim() || 'SMART',
         currency: document.getElementById('w-currency').value.trim() || 'USD',
         ma_period: parseInt(document.getElementById('w-ma-period').value) || 21,
         n_points: parseFloat(document.getElementById('w-n-points').value) || 5,
+        contract_month: secType === 'FUT' ? document.getElementById('w-contract').value : null,
         enabled: true,
     };
     const res = await api('/api/watch', 'POST', item);
     if (res) {
-        log(`已新增觀察: ${symbol}`, 'success');
-        state.watchList.push(res);
+        // Auto-save to favorites
+        addFavorite(item);
+        log(`已新增觀察: ${symbol}（已收藏 ⭐）`, 'success');
+        if (!standaloneMode) state.watchList.push(res);
         renderWatchList();
+        renderFavorites();
         hideAddWatch();
         document.getElementById('w-symbol').value = '';
     }
@@ -297,24 +342,14 @@ function renderWatchList() {
         const dist = data.distance_from_ma != null ? data.distance_from_ma.toFixed(2) : '--';
         const zone = data.buy_zone || data.sell_zone || '--';
 
+        const callOpts = data.options_call || [];
+        const putOpts = data.options_put || [];
+        const expanded = state.expandedWatch === w.id;
+
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
-            <div>
-                <div class="watch-symbol">${w.symbol}</div>
-                <div class="watch-details">
-                    <span>${w.sec_type} · ${w.exchange}</span>
-                    <span>MA${w.ma_period}</span>
-                    <span>N=${w.n_points}</span>
-                    <span>價格: ${price}</span>
-                    <span>MA: ${ma}</span>
-                    <span>距離: ${dist}</span>
-                </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-                <div class="watch-ma-info">
-                    <span class="ma-badge ${dirClass}">${dirLabel}</span>
-                    <span style="font-size:11px;color:var(--text-muted)">觸發區: ${zone}</span>
-                </div>
+            <div class="watch-top-row">
+                <div class="watch-symbol">${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span> <span class="strategy-tag ${w.strategy || 'BOTH'}">${w.strategy === 'BUY' ? '📈 買' : w.strategy === 'SELL' ? '📉 賣' : '↔️ 雙向'}</span></div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
@@ -322,9 +357,268 @@ function renderWatchList() {
                     <button class="btn btn-sm btn-icon btn-danger" onclick="removeWatch('${w.id}')" title="移除">🗑</button>
                 </div>
             </div>
+            <div class="watch-details">
+                <span>MA${w.ma_period}</span>
+                <span>N=${w.n_points}</span>
+                <span>價格: ${price}</span>
+                <span>MA: ${ma}</span>
+                <span>距離: ${dist}</span>
+            </div>
+            <div class="watch-bottom-row">
+                <div class="watch-ma-info">
+                    <span class="ma-badge ${dirClass}">${dirLabel}</span>
+                    <span class="watch-price-info">觸發區: ${zone}</span>
+                </div>
+                <div style="display:flex;gap:4px;">
+                    ${expanded ? `<button class="btn btn-sm" onclick="resetOptions('${w.id}')" title="依當前MA重新篩選">🔄</button>` : ''}
+                    <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
+                        ${expanded ? '收起 ▲' : '選擇權 ▼'}
+                    </button>
+                </div>
+            </div>
+            ${expanded ? renderInlineOptions(w, data, callOpts, putOpts, price) : ''}
         </div>`;
     }
     container.innerHTML = html;
+}
+
+async function resetOptions(watchId) {
+    const data = state.latestData[watchId];
+    const w = state.watchList.find(x => x.id === watchId);
+    if (!w) return;
+    const base = data?.current_price || 100;
+    const maVal = data?.ma_value || base;
+    
+    if (standaloneMode) {
+        // Demo mode: use generated data
+        if (data) {
+            data.options_call = genDemoOptions(w.symbol, 'C', maVal, base);
+            data.options_put = genDemoOptions(w.symbol, 'P', maVal, base);
+            data.locked_ma = maVal;
+            data.selected_expiry = Object.keys(data.options_call)[0];
+        }
+        renderWatchList();
+        log(`${w.symbol} 選擇權已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
+        return;
+    }
+    
+    // Real mode: call backend refresh endpoint (re-cache + price update)
+    log(`正在刷新 ${w.symbol} 期權...`, 'info');
+    try {
+        const res = await api(`/api/options/refresh/${watchId}`, 'POST');
+        if (res?.ok) {
+            log(`${w.symbol} 期權已刷新 (Call:${res.calls} Put:${res.puts})`, 'success');
+            // data_update will arrive via WebSocket and trigger re-render
+        } else {
+            log(`刷新失敗: ${res?.error || '未知錯誤'}`, 'error');
+        }
+    } catch (e) {
+        log(`刷新失敗: ${e.message}`, 'error');
+    }
+}
+
+function toggleExpand(watchId) {
+    if (state.expandedWatch === watchId) {
+        state.expandedWatch = null;
+    } else {
+        state.expandedWatch = watchId;
+    }
+    renderWatchList();
+}
+
+function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
+    const expiries = Object.keys(callOptsData || {});
+    if (!expiries.length) {
+        return '<div class="opts-section"><div class="empty-state">尚無選擇權數據</div></div>';
+    }
+
+    const selectedExpiry = data.selected_expiry || expiries[0];
+    const callOpts = callOptsData[selectedExpiry]?.options || [];
+    const putOpts = putOptsData[selectedExpiry]?.options || [];
+
+    // Expiry tabs
+    const expiryTabs = expiries.map(exp => {
+        const info = callOptsData[exp]?.expiry || {};
+        const isActive = exp === selectedExpiry;
+        return `<button class="expiry-tab ${isActive ? 'active' : ''}" onclick="selectExpiry('${watch.id}','${exp}')">${info.label || exp}${isActive ? ' ✓' : ''}</button>`;
+    }).join('');
+
+    const sel = state.optSelections[watch.id] || {};
+    const renderSide = (opts, label, color) => {
+        if (!opts.length) return '';
+        let rows = opts.map((o, i) => {
+            const optKey = `${o.right}-${i}`;
+            const optSel = sel[optKey] || {};
+            const checked = optSel.checked ? 'checked' : '';
+            const amt = optSel.amount || 1000;
+            return `
+            <div class="opt-inline-row">
+                <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}" class="opt-check" data-ask="${o.ask}" data-key="${optKey}" ${checked} onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
+                <span class="opt-inline-strike">${o.strike}</span>
+                <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
+                <span class="opt-inline-ba">${o.bid?.toFixed(2)}/${o.ask?.toFixed(2)}</span>
+                <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
+                <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+            </div>`;
+        }).join('');
+        return `<div class="opt-inline-group">
+            <div class="opt-inline-label" style="color:${color}">${label}</div>
+            <div class="opt-inline-header">
+                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>金額$</span>
+            </div>
+            ${rows}
+        </div>`;
+    };
+
+    // Also show underlying as tradeable
+    const stkSel = sel['stk'] || {};
+    const stkChecked = stkSel.checked ? 'checked' : '';
+    const stkAmt = stkSel.amount || 5000;
+    const underlying = `
+        <div class="opt-inline-row" style="border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px;">
+            <input type="checkbox" id="opt-${watch.id}-stk" class="opt-check" data-ask="${price}" data-key="stk" ${stkChecked} onchange="saveOptSel('${watch.id}','stk',this.checked)">
+            <span class="opt-inline-strike" style="color:var(--blue);">標的</span>
+            <span class="opt-inline-name">📈 ${watch.symbol}</span>
+            <span class="opt-inline-ba">--</span>
+            <span class="opt-inline-last" style="color:var(--blue)">$${price}</span>
+            <input type="number" value="${stkAmt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','stk',this.value)">
+        </div>`;
+    
+    // Exit strategy configuration (preserve state)
+    const ex = sel.exit || {};
+    const exitConfig = `
+        <div class="exit-config">
+            <div class="exit-config-title">📤 平倉策略（可多選）</div>
+            <div class="exit-option">
+                <label><input type="checkbox" id="exit-${watch.id}-profit" ${ex.profit ? 'checked' : ''} onchange="saveExitSel('${watch.id}','profit',this.checked)"> 1️⃣ 限價止盈</label>
+                <span>成交價 <select id="exit-${watch.id}-profit-dir" onchange="saveExitVal('${watch.id}','profitDir',this.value)">
+                    <option value="+" ${ex.profitDir === '+' || !ex.profitDir ? 'selected' : ''}>+</option>
+                    <option value="-" ${ex.profitDir === '-' ? 'selected' : ''}>-</option>
+                </select>
+                <input type="number" id="exit-${watch.id}-profit-pts" value="${ex.profitPts || 0.5}" step="0.1" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','profitPts',this.value)"> 點</span>
+            </div>
+            <div class="exit-option">
+                <label><input type="checkbox" id="exit-${watch.id}-time" ${ex.time ? 'checked' : ''} onchange="saveExitSel('${watch.id}','time',this.checked)"> 2️⃣ 時間平倉</label>
+                <input type="time" id="exit-${watch.id}-time-val" value="${ex.timeVal || '15:55'}" class="exit-input" onchange="saveExitVal('${watch.id}','timeVal',this.value)">
+            </div>
+            <div class="exit-option">
+                <label><input type="checkbox" id="exit-${watch.id}-ma" ${ex.ma ? 'checked' : ''} onchange="saveExitSel('${watch.id}','ma',this.checked)"> 3️⃣ 均線平倉</label>
+                <span>標的 <select id="exit-${watch.id}-ma-cond" onchange="saveExitVal('${watch.id}','maCond',this.value)">
+                    <option value="above" ${ex.maCond === 'above' || !ex.maCond ? 'selected' : ''}>高於</option>
+                    <option value="below" ${ex.maCond === 'below' ? 'selected' : ''}>低於</option>
+                </select> MA <select id="exit-${watch.id}-ma-dir" onchange="saveExitVal('${watch.id}','maDir',this.value)">
+                    <option value="+" ${ex.maDir === '+' || !ex.maDir ? 'selected' : ''}>+</option>
+                    <option value="-" ${ex.maDir === '-' ? 'selected' : ''}>-</option>
+                </select>
+                <input type="number" id="exit-${watch.id}-ma-pts" value="${ex.maPts || 5}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','maPts',this.value)"> 點</span>
+            </div>
+            <div class="exit-actions">
+                <button class="btn btn-sm btn-success" onclick="placeOrder('${watch.id}')">📥 市價下單</button>
+            </div>
+        </div>`;
+
+    const lockedInfo = data.locked_ma
+        ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}</div>`
+        : '';
+
+    const strategy = watch.strategy || 'BOTH';
+    const showCall = strategy === 'BUY' || strategy === 'BOTH';
+    const showPut = strategy === 'SELL' || strategy === 'BOTH';
+
+    return `<div class="opts-section">
+        <div class="expiry-tabs-row">
+            <span style="font-size:11px;color:var(--text-muted);margin-right:8px;">到期日:</span>
+            ${expiryTabs}
+        </div>
+        ${lockedInfo}
+        ${underlying}
+        ${showCall ? renderSide(callOpts, 'Call 價外5檔（買進用）', 'var(--green)') : ''}
+        ${showPut ? renderSide(putOpts, 'Put 價外5檔（賣出用）', 'var(--red)') : ''}
+        ${exitConfig}
+    </div>`;
+}
+
+function selectExpiry(watchId, expiry) {
+    if (state.latestData[watchId]) {
+        state.latestData[watchId].selected_expiry = expiry;
+        renderWatchList();
+    }
+}
+
+// Save/restore option selections
+function saveOptSel(watchId, key, checked) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId][key]) state.optSelections[watchId][key] = {};
+    state.optSelections[watchId][key].checked = checked;
+}
+function saveOptAmt(watchId, key, amount) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId][key]) state.optSelections[watchId][key] = {};
+    state.optSelections[watchId][key].amount = parseFloat(amount);
+}
+function saveExitSel(watchId, key, checked) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId].exit) state.optSelections[watchId].exit = {};
+    state.optSelections[watchId].exit[key] = checked;
+}
+function saveExitVal(watchId, key, value) {
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    if (!state.optSelections[watchId].exit) state.optSelections[watchId].exit = {};
+    state.optSelections[watchId].exit[key] = value;
+}
+
+function placeOrder(watchId) {
+    const w = state.watchList.find(x => x.id === watchId);
+    if (!w) return;
+
+    const sel = state.optSelections[watchId] || {};
+    const ex = sel.exit || {};
+
+    // Collect checked options from saved state
+    const checkedOpts = Object.entries(sel).filter(([k, v]) => k !== 'exit' && v.checked);
+    if (checkedOpts.length === 0) {
+        log('請先勾選要交易的商品', 'warning');
+        return;
+    }
+
+    // Collect exit strategies from saved state
+    const exitStrategies = [];
+    if (ex.profit) {
+        exitStrategies.push(`限價止盈: 成交價${ex.profitDir || '+'}${ex.profitPts || 0.5}點`);
+    }
+    if (ex.time) {
+        exitStrategies.push(`時間平倉: ${ex.timeVal || '15:55'}`);
+    }
+    if (ex.ma) {
+        const cond = ex.maCond === 'below' ? '低於' : '高於';
+        exitStrategies.push(`均線平倉: 標的${cond}MA${ex.maDir || '+'}${ex.maPts || 5}點`);
+    }
+
+    // Calculate quantities from amounts
+    const orders = [];
+    checkedOpts.forEach(([key, opt]) => {
+        const amount = opt.amount || 1000;
+        // Get ask from DOM as it updates
+        const chk = document.querySelector(`input[data-key="${key}"]`);
+        const ask = parseFloat(chk?.dataset.ask) || 1;
+        const isStock = key === 'stk';
+        const qty = isStock ? Math.floor(amount / ask) : Math.floor(amount / (ask * 100));
+        orders.push({ key, amount, ask, qty: Math.max(qty, 1) });
+    });
+
+    // Log the order (demo mode)
+    log(`📥 下單 ${w.symbol}:`, 'success');
+    orders.forEach(o => {
+        const label = o.key === 'stk' ? '標的' : o.key;
+        log(`   ${label} | 金額$${o.amount} ÷ Ask$${o.ask} = ${o.qty}口 市價買入`, 'info');
+    });
+    if (exitStrategies.length) {
+        log(`   平倉策略: ${exitStrategies.join(', ')}`, 'info');
+    } else {
+        log(`   ⚠️ 未設定平倉策略`, 'warning');
+    }
+
+    showToast(`${w.symbol} 模擬下單成功`, 'buy');
 }
 
 function renderSignals() {
@@ -445,6 +739,26 @@ function log(msg, level = 'info') {
     }
 }
 
+// ─── Favorites (localStorage) ───
+const FAV_KEY = 'trademon_favorites';
+function loadFavorites() {
+    try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch(e) { return []; }
+}
+function saveFavorites(favs) {
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+}
+function addFavorite(item) {
+    const favs = loadFavorites();
+    // Dedupe by symbol+secType
+    if (favs.some(f => f.symbol === item.symbol && f.sec_type === item.sec_type)) return;
+    favs.push({ symbol: item.symbol, sec_type: item.sec_type, exchange: item.exchange, currency: item.currency });
+    saveFavorites(favs);
+}
+function removeFavorite(symbol, secType) {
+    const favs = loadFavorites().filter(f => !(f.symbol === symbol && f.sec_type === secType));
+    saveFavorites(favs);
+}
+
 // ─── Standalone Demo (no backend) ───
 let standaloneMode = false;
 let standaloneTicker = null;
@@ -480,6 +794,14 @@ function startStandaloneDemo() {
             const prevMa = +(maVal - (Math.random() - 0.5) * 0.5).toFixed(4);
             const rising = maVal > prevMa;
             const dist = +(price - maVal).toFixed(4);
+
+            // Lock options at start — only generate once
+            const existing = state.latestData[w.id];
+            const callOptsData = (existing && existing.options_call) ? existing.options_call : genDemoOptions(w.symbol, 'C', maVal, base);
+            const putOptsData = (existing && existing.options_put) ? existing.options_put : genDemoOptions(w.symbol, 'P', maVal, base);
+            const lockedMa = (existing && existing.locked_ma) ? existing.locked_ma : maVal;
+            const selectedExpiry = (existing && existing.selected_expiry) ? existing.selected_expiry : Object.keys(callOptsData)[0];
+
             state.latestData[w.id] = {
                 symbol: w.symbol, current_price: price, ma_value: maVal,
                 prev_ma: prevMa, ma_period: w.ma_period,
@@ -488,36 +810,55 @@ function startStandaloneDemo() {
                 buy_zone: rising ? `${maVal.toFixed(2)} ~ ${(maVal + w.n_points).toFixed(2)}` : null,
                 sell_zone: !rising ? `${(maVal - w.n_points).toFixed(2)} ~ ${maVal.toFixed(2)}` : null,
                 last_updated: new Date().toISOString(),
+                options_call: callOptsData,
+                options_put: putOptsData,
+                locked_ma: lockedMa,
+                selected_expiry: selectedExpiry,
             };
-            // 5% chance signal
-            if (Math.random() < 0.03 && w.enabled) {
-                const sigType = rising ? 'BUY' : 'SELL';
+            // 5% chance signal — only if matches strategy direction
+            const strategy = w.strategy || 'BOTH';
+            const canBuy = (strategy === 'BUY' || strategy === 'BOTH') && rising;
+            const canSell = (strategy === 'SELL' || strategy === 'BOTH') && !rising;
+            if (Math.random() < 0.03 && w.enabled && (canBuy || canSell)) {
+                const sigType = canBuy ? 'BUY' : 'SELL';
                 const sig = { timestamp: new Date().toISOString(), watch_id: w.id, symbol: w.symbol,
                     signal_type: sigType, price, ma_value: maVal, ma_period: w.ma_period,
                     n_points: w.n_points, distance: Math.abs(dist) };
                 state.signals.unshift(sig);
                 renderSignals();
                 showSignalToast(sig);
-                const right = sigType === 'BUY' ? 'C' : 'P';
-                const baseStrike = Math.round(maVal / 5) * 5;
-                const opts = [];
-                for (let i = 0; i < 5; i++) {
-                    const strike = right === 'C' ? baseStrike + (i+1)*5 : baseStrike - (i+1)*5;
-                    const bid = +(Math.random() * 13 + 1.5).toFixed(2);
-                    const ask = +(bid + Math.random() * 0.5 + 0.1).toFixed(2);
-                    opts.push({ symbol: w.symbol, expiry: '20260220', strike, right,
-                        name: `${w.symbol} 20260220 ${strike} ${right}`,
-                        bid, ask, last: +((bid+ask)/2).toFixed(2), volume: Math.floor(Math.random()*5000+100) });
-                }
-                showOptionsPanel(sig, opts, { symbol: w.symbol, price, sec_type: w.sec_type || 'STK' });
             }
         }
         renderWatchList();
     }, 8000);
 }
 
+function genDemoOptions(symbol, right, maVal, basePrice) {
+    const expiries = getNearestExpiries(2);
+    const step = basePrice > 1000 ? 25 : basePrice > 100 ? 5 : 1;
+    const baseStrike = Math.round(maVal / step) * step;
+    const result = {};
+    
+    for (const exp of expiries) {
+        const opts = [];
+        for (let i = 0; i < 5; i++) {
+            const strike = right === 'C' ? baseStrike + (i + 1) * step : baseStrike - (i + 1) * step;
+            const dist = Math.abs(strike - basePrice);
+            const bid = +(Math.max(0.5, (15 - dist / basePrice * 100) * Math.random() + 1)).toFixed(2);
+            const ask = +(bid + Math.random() * 0.5 + 0.05).toFixed(2);
+            opts.push({
+                symbol, expiry: exp.value, expiryLabel: exp.label, strike, right,
+                name: `${symbol} ${exp.label} ${strike}${right}`,
+                bid, ask, last: +((bid + ask) / 2).toFixed(2),
+                volume: Math.floor(Math.random() * 5000 + 100),
+            });
+        }
+        result[exp.value] = { expiry: exp, options: opts };
+    }
+    return result;
+}
+
 // Override API for standalone mode
-const _origApi = api;
 async function api(path, method = 'GET', body = null) {
     if (standaloneMode) {
         // Handle locally
@@ -548,12 +889,19 @@ async function api(path, method = 'GET', body = null) {
         }
         return {};
     }
-    return _origApi(path, method, body);
+    return _realApi(path, method, body);
 }
 
 // ─── Init ───
 window.addEventListener('load', () => {
     log('Trading Monitor 已載入', 'info');
+
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/static/sw.js').then(() => {
+            log('PWA Service Worker 已註冊', 'info');
+        }).catch(e => log('SW 註冊失敗: ' + e.message, 'warning'));
+    }
 
     // Try WebSocket, fall back to standalone demo
     try {
@@ -573,4 +921,87 @@ window.addEventListener('load', () => {
     document.getElementById('w-symbol').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') addWatch();
     });
+
+    // Show/hide contract month for futures
+    document.getElementById('w-sectype').addEventListener('change', updateContractDropdown);
+    updateContractDropdown();
 });
+
+function updateContractDropdown() {
+    const secType = document.getElementById('w-sectype').value;
+    const group = document.getElementById('w-contract-group');
+    const select = document.getElementById('w-contract');
+    const exchangeInput = document.getElementById('w-exchange');
+    if (secType === 'FUT') {
+        group.style.display = 'block';
+        exchangeInput.value = 'CME';  // 期貨自動設為 CME
+        const months = getNearestContractMonths(2);
+        select.innerHTML = months.map((m, i) => 
+            `<option value="${m.value}">${m.label}${i === 0 ? ' (近月)' : ' (次近月)'}</option>`
+        ).join('');
+    } else {
+        group.style.display = 'none';
+        exchangeInput.value = 'SMART';  // 股票恢復 SMART
+    }
+}
+
+function formatContractMonth(yyyymm) {
+    if (!yyyymm) return '';
+    const y = yyyymm.slice(0, 4);
+    const m = parseInt(yyyymm.slice(4, 6));
+    const codes = { 3: 'H', 6: 'M', 9: 'U', 12: 'Z' };
+    const code = codes[m] || '';
+    return `${y}/${String(m).padStart(2, '0')}${code ? ` (${code}${y.slice(-2)})` : ''}`;
+}
+
+function getNearestExpiries(count) {
+    // Get nearest weekly/monthly option expiries (Fridays)
+    const results = [];
+    const now = new Date();
+    let d = new Date(now);
+    // Find next Friday
+    while (d.getDay() !== 5) d.setDate(d.getDate() + 1);
+    // If today is Friday and market closed, skip to next
+    if (d.toDateString() === now.toDateString() && now.getHours() >= 16) {
+        d.setDate(d.getDate() + 7);
+    }
+    for (let i = 0; i < count; i++) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        results.push({
+            value: `${yyyy}${mm}${dd}`,
+            label: `${mm}/${dd}`,
+            full: `${yyyy}/${mm}/${dd}`
+        });
+        d.setDate(d.getDate() + 7);
+    }
+    return results;
+}
+
+function getNearestContractMonths(count) {
+    // Futures typically have quarterly contracts: Mar(H), Jun(M), Sep(U), Dec(Z)
+    const codes = ['H', 'M', 'U', 'Z']; // Mar, Jun, Sep, Dec
+    const codeMonths = [3, 6, 9, 12];
+    const now = new Date();
+    let year = now.getFullYear();
+    let month = now.getMonth() + 1;
+    const results = [];
+    
+    while (results.length < count) {
+        for (let i = 0; i < codeMonths.length && results.length < count; i++) {
+            const cm = codeMonths[i];
+            const cy = cm < month ? year + 1 : year;
+            if (cy > year || cm >= month) {
+                const yy = String(cy).slice(-2);
+                const value = `${cy}${String(cm).padStart(2, '0')}`;
+                const label = `${cy}/${String(cm).padStart(2, '0')} (${codes[i]}${yy})`;
+                if (!results.find(r => r.value === value)) {
+                    results.push({ value, label });
+                }
+            }
+        }
+        year++;
+    }
+    return results;
+}

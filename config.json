@@ -1,25 +1,44 @@
 {
   "watch_list": [
     {
-      "id": "98b72c3e",
-      "symbol": "SPY",
+      "id": "07a2778e",
+      "symbol": "TSLA",
       "sec_type": "STK",
       "exchange": "SMART",
       "currency": "USD",
       "ma_period": 21,
       "n_points": 5.0,
-      "enabled": true
+      "enabled": true,
+      "contract_month": "",
+      "direction": "LONG",
+      "strategy": "BOTH"
     },
     {
-      "id": "e784072f",
-      "symbol": "SPY",
-      "sec_type": "STK",
-      "exchange": "SMART",
+      "id": "7e9b1ee3",
+      "symbol": "MES",
+      "sec_type": "FUT",
+      "exchange": "CME",
       "currency": "USD",
       "ma_period": 21,
       "n_points": 5.0,
-      "enabled": true
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "strategy": "BOTH"
+    },
+    {
+      "id": "b99eeae4",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 34,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "strategy": "BUY"
     }
   ],
-  "saved_at": "2026-02-03T04:35:43.218057"
+  "saved_at": "2026-02-03T22:21:07.072367"
 }

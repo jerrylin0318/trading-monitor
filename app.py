@@ -86,27 +86,155 @@ def save_config():
 # --- WebSocket broadcast ---
 async def broadcast(msg: Dict[str, Any]):
     """Send message to all connected WebSocket clients."""
-    global ws_clients
     if not ws_clients:
         return
     text = json.dumps(msg, default=str)
     disconnected = set()
-    for ws in ws_clients:
+    for ws in list(ws_clients):  # iterate copy to avoid "Set changed size" error
         try:
             await ws.send_text(text)
         except Exception:
             disconnected.add(ws)
-    ws_clients -= disconnected
+    ws_clients.difference_update(disconnected)
+
+
+# --- Options cache ---
+_options_cache: Dict[str, Dict] = {}  # watch_id -> {"call": [...], "put": [...], "ma_price": float}
+
+
+async def _init_new_watch(watch):
+    """Initialize a newly added watch item: fetch data, calculate MA, cache options."""
+    try:
+        df = await ib.get_daily_bars(
+            watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+            contract_month=watch.contract_month
+        )
+        if df is None or len(df) < watch.ma_period + 1:
+            logger.warning("Insufficient data for new watch %s", watch.symbol)
+            await broadcast({"type": "error", "message": f"{watch.symbol} 數據不足，請確認交易所和合約月份"})
+            return
+
+        current_price = await ib.get_current_price(
+            watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+            contract_month=watch.contract_month
+        )
+        if current_price is None:
+            current_price = float(df["close"].iloc[-1])
+
+        engine.check_signal(df, watch, current_price)
+        data = engine.latest_data.get(watch.id, {})
+        ma_price = data.get("ma_value", current_price)
+
+        await cache_options_for_watch(watch.id, watch, ma_price)
+
+        if watch.id in _options_cache:
+            data["options_call"] = _options_cache[watch.id]["call"]
+            data["options_put"] = _options_cache[watch.id]["put"]
+            data["locked_ma"] = ma_price
+
+        await broadcast({"type": "data_update", "watch_id": watch.id, "data": data})
+        logger.info("Initialized new watch %s: price=%.2f MA=%.2f", watch.symbol, current_price, ma_price)
+    except Exception as e:
+        logger.error("Failed to init new watch %s: %s", watch.symbol, e)
+        await broadcast({"type": "error", "message": f"{watch.symbol} 初始化失敗: {e}"})
+
+
+def _group_options(flat_list: list) -> Dict:
+    """Group flat option list into {expiry: {expiry: {value, label}, options: [...]}}."""
+    grouped = {}
+    for o in flat_list:
+        exp = o["expiry"]
+        if exp not in grouped:
+            grouped[exp] = {
+                "expiry": {"value": exp, "label": o.get("expiryLabel", f"{exp[4:6]}/{exp[6:8]}")},
+                "options": [],
+            }
+        # Don't send internal _contract object to frontend
+        clean = {k: v for k, v in o.items() if k != "_contract"}
+        grouped[exp]["options"].append(clean)
+    return grouped
+
+
+async def cache_options_for_watch(watch_id: str, watch, ma_price: float):
+    """Fetch and cache Call+Put option contracts for a watch item."""
+    try:
+        calls = await ib.get_option_chain(
+            watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+            ma_price=ma_price, right="C", num_strikes=5,
+            contract_month=watch.contract_month
+        )
+        puts = await ib.get_option_chain(
+            watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+            ma_price=ma_price, right="P", num_strikes=5,
+            contract_month=watch.contract_month
+        )
+        _options_cache[watch_id] = {
+            "call_raw": calls, "put_raw": puts,
+            "call": _group_options(calls), "put": _group_options(puts),
+            "ma_price": ma_price,
+        }
+        logger.info("Cached options for %s: %d calls, %d puts (MA=%.2f)",
+                     watch.symbol, len(calls), len(puts), ma_price)
+    except Exception as e:
+        logger.error("Failed to cache options for %s: %s", watch.symbol, e)
 
 
 # --- Monitor loop ---
 async def monitor_loop():
     """Main monitoring loop — checks signals periodically."""
     logger.info("Monitor loop started")
+    
+    # Phase 1: Initial data fetch + cache options for all watches
+    initialized = set()
+    for watch_id, watch in list(engine.watch_list.items()):
+        if not watch.enabled:
+            continue
+        try:
+            df = await ib.get_daily_bars(
+                watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+                contract_month=watch.contract_month
+            )
+            if df is None or len(df) < watch.ma_period + 1:
+                logger.warning("Insufficient data for %s", watch.symbol)
+                continue
+
+            current_price = await ib.get_current_price(
+                watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+                contract_month=watch.contract_month
+            )
+            if current_price is None:
+                current_price = float(df["close"].iloc[-1])
+
+            # Calculate MA and store data
+            engine.check_signal(df, watch, current_price)
+            data = engine.latest_data.get(watch_id, {})
+            ma_price = data.get("ma_value", current_price)
+
+            # Cache option contracts (no prices yet — fast)
+            await cache_options_for_watch(watch_id, watch, ma_price)
+
+            # Attach cached options to data for frontend
+            if watch_id in _options_cache:
+                data["options_call"] = _options_cache[watch_id]["call"]
+                data["options_put"] = _options_cache[watch_id]["put"]
+                data["locked_ma"] = ma_price
+
+            await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+            initialized.add(watch_id)
+            logger.info("Initialized %s: price=%.2f MA=%.2f", watch.symbol, current_price, ma_price)
+        except Exception as e:
+            logger.error("Failed to init %s: %s", watch.symbol, e)
+
+    await broadcast({"type": "status", "connected": True, "monitoring": True, 
+                     "message": f"監控已啟動 ({len(initialized)}/{len(engine.watch_list)} 標的)"})
+
+    # Phase 2: Periodic updates (price + MA, options prices on signal)
+    tick = 0
     while engine.running:
         try:
+            tick += 1
             if not ib.connected:
-                await broadcast({"type": "status", "connected": False, "message": "IB disconnected, retrying..."})
+                await broadcast({"type": "status", "connected": False, "message": "IB 斷線，重連中..."})
                 connected = await ib.connect()
                 if not connected:
                     await asyncio.sleep(10)
@@ -116,71 +244,64 @@ async def monitor_loop():
                 if not watch.enabled or not engine.running:
                     continue
 
-                # Fetch daily bars
                 df = await ib.get_daily_bars(
-                    watch.symbol, watch.sec_type, watch.exchange, watch.currency
+                    watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+                    contract_month=watch.contract_month
                 )
                 if df is None or len(df) < watch.ma_period + 1:
-                    logger.warning("Insufficient data for %s", watch.symbol)
                     continue
 
-                # Get current price
                 current_price = await ib.get_current_price(
-                    watch.symbol, watch.sec_type, watch.exchange, watch.currency
+                    watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+                    contract_month=watch.contract_month
                 )
                 if current_price is None:
-                    # Use last close as fallback
                     current_price = float(df["close"].iloc[-1])
 
-                # Check for signal
                 signal = engine.check_signal(df, watch, current_price)
+                data = engine.latest_data.get(watch_id, {})
 
-                # Broadcast updated data
-                await broadcast({
-                    "type": "data_update",
-                    "watch_id": watch_id,
-                    "data": engine.latest_data.get(watch_id, {}),
-                })
+                # Always include cached options
+                if watch_id in _options_cache:
+                    data["options_call"] = _options_cache[watch_id]["call"]
+                    data["options_put"] = _options_cache[watch_id]["put"]
+                    data["locked_ma"] = _options_cache[watch_id]["ma_price"]
+
+                await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
 
                 if signal:
-                    # Fetch option chain when signal triggers
-                    right = "C" if signal.signal_type == SignalType.BUY else "P"
-                    options = await ib.get_option_chain(
-                        watch.symbol, watch.sec_type, watch.exchange, watch.currency,
-                        ma_price=signal.ma_value, right=right, num_strikes=5
-                    )
+                    # On signal: refresh option prices (batch snapshot)
+                    cache = _options_cache.get(watch_id)
+                    if cache:
+                        refreshed_calls = await ib.refresh_option_prices(cache["call_raw"])
+                        refreshed_puts = await ib.refresh_option_prices(cache["put_raw"])
+                        cache["call"] = _group_options(refreshed_calls)
+                        cache["put"] = _group_options(refreshed_puts)
+                        data["options_call"] = cache["call"]
+                        data["options_put"] = cache["put"]
+
                     await broadcast({
                         "type": "signal",
                         "signal": signal.to_dict(),
-                        "options": options,
-                        "underlying": {
-                            "symbol": watch.symbol,
-                            "price": current_price,
-                            "sec_type": watch.sec_type,
-                        },
+                        "options": None,
+                        "underlying": {"symbol": watch.symbol, "price": current_price, "sec_type": watch.sec_type},
                     })
 
-                # Small delay between symbols
                 await asyncio.sleep(1)
 
-            # Broadcast account info
-            try:
-                account = await ib.get_account_summary()
-                positions = await ib.get_positions()
-                await broadcast({
-                    "type": "account",
-                    "summary": account,
-                    "positions": positions,
-                    "connected": True,
-                })
-            except Exception as e:
-                logger.error("Account data error: %s", e)
+            # Account update every 5 ticks (5 min)
+            if tick % 5 == 0:
+                try:
+                    account = await ib.get_account_summary()
+                    positions = await ib.get_positions()
+                    await broadcast({"type": "account", "summary": account, "positions": positions, "connected": True})
+                except Exception as e:
+                    logger.error("Account data error: %s", e)
 
         except Exception as e:
             logger.error("Monitor loop error: %s", e)
             await broadcast({"type": "error", "message": str(e)})
 
-        # Check every 60 seconds (daily strategy doesn't need faster)
         await asyncio.sleep(60)
 
     logger.info("Monitor loop stopped")
@@ -212,6 +333,9 @@ class WatchItemCreate(BaseModel):
     ma_period: int = 21
     n_points: float = 5.0
     enabled: bool = True
+    contract_month: str = ""
+    direction: str = "LONG"
+    strategy: str = "BOTH"
 
 
 class WatchItemUpdate(BaseModel):
@@ -222,6 +346,9 @@ class WatchItemUpdate(BaseModel):
     ma_period: Optional[int] = None
     n_points: Optional[float] = None
     enabled: Optional[bool] = None
+    contract_month: Optional[str] = None
+    direction: Optional[str] = None
+    strategy: Optional[str] = None
 
 
 # --- API Routes ---
@@ -287,10 +414,18 @@ async def add_watch(item: WatchItemCreate):
         ma_period=item.ma_period,
         n_points=item.n_points,
         enabled=item.enabled,
+        contract_month=item.contract_month,
+        direction=item.direction,
+        strategy=item.strategy,
     )
     engine.add_watch(watch)
     save_config()
     await broadcast({"type": "watch_update", "watch_list": engine.get_watch_list()})
+    
+    # If monitoring, initialize the new watch (fetch data + cache options)
+    if engine.running and not DEMO_MODE and ib and ib.connected:
+        asyncio.create_task(_init_new_watch(watch))
+    
     return watch.to_dict()
 
 
@@ -361,6 +496,40 @@ async def get_options(symbol: str, right: str = "C", ma_price: float = 0, sec_ty
         return _demo_options(symbol.upper(), right, ma_price, num_strikes)
     options = await ib.get_option_chain(symbol.upper(), sec_type, exchange, currency, ma_price, right, num_strikes)
     return options
+
+
+@app.post("/api/options/refresh/{watch_id}")
+async def refresh_watch_options(watch_id: str):
+    """Re-cache options for a watch item based on current MA, then refresh prices."""
+    if DEMO_MODE:
+        return {"ok": True}
+    watch = engine.watch_list.get(watch_id)
+    if not watch:
+        return {"error": "Watch not found"}
+    
+    data = engine.latest_data.get(watch_id, {})
+    ma_price = data.get("ma_value", 0)
+    if ma_price <= 0:
+        return {"error": "No MA data yet"}
+    
+    # Re-fetch contracts based on current MA
+    await cache_options_for_watch(watch_id, watch, ma_price)
+    
+    # Refresh prices
+    cache = _options_cache.get(watch_id)
+    if cache:
+        refreshed_calls = await ib.refresh_option_prices(cache["call_raw"])
+        refreshed_puts = await ib.refresh_option_prices(cache["put_raw"])
+        cache["call"] = _group_options(refreshed_calls)
+        cache["put"] = _group_options(refreshed_puts)
+        
+        data["options_call"] = cache["call"]
+        data["options_put"] = cache["put"]
+        data["locked_ma"] = ma_price
+        
+        await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+    
+    return {"ok": True, "calls": len(cache.get("call_raw", [])), "puts": len(cache.get("put_raw", []))}
 
 
 def _demo_options(symbol: str, right: str, ma_price: float, num_strikes: int = 5):
@@ -489,14 +658,29 @@ async def websocket_endpoint(ws: WebSocket):
     logger.info("WebSocket client connected (total: %d)", len(ws_clients))
     try:
         # Send initial state
-        await ws.send_text(json.dumps({
+        init_msg = {
             "type": "init",
-            "connected": ib.connected,
+            "connected": ib.connected if ib else DEMO_MODE,
             "monitoring": engine.running,
             "watch_list": engine.get_watch_list(),
             "signals": engine.get_signals(20),
             "latest_data": engine.get_latest_data(),
-        }, default=str))
+        }
+        await ws.send_text(json.dumps(init_msg, default=str))
+        
+        # Send account data if connected
+        if not DEMO_MODE and ib and ib.connected:
+            try:
+                account = await ib.get_account_summary()
+                positions = await ib.get_positions()
+                await ws.send_text(json.dumps({
+                    "type": "account",
+                    "summary": account,
+                    "positions": positions,
+                    "connected": True,
+                }, default=str))
+            except Exception:
+                pass
 
         while True:
             data = await ws.receive_text()

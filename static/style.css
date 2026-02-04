@@ -211,32 +211,58 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     border-radius: 6px;
     padding: 12px 16px;
     margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     border: 1px solid var(--border);
     transition: border-color 0.15s;
 }
 .watch-item:hover { border-color: var(--border-light); }
 .watch-item.disabled { opacity: 0.5; }
+.watch-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
 .watch-symbol {
     font-size: 16px;
     font-weight: 700;
     color: var(--blue);
 }
+.strategy-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 500;
+    margin-left: 4px;
+}
+.strategy-tag.BUY { background: rgba(63,185,80,0.15); color: var(--green); }
+.strategy-tag.SELL { background: rgba(248,81,73,0.15); color: var(--red); }
+.strategy-tag.BOTH { background: rgba(88,166,255,0.15); color: var(--blue); }
+.watch-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
 .watch-details {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 8px 16px;
     font-size: 12px;
     color: var(--text-secondary);
-    margin-top: 4px;
+    margin-top: 8px;
 }
 .watch-details span { display: flex; align-items: center; gap: 4px; }
+.watch-bottom-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
 .watch-ma-info {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 .ma-badge {
     display: inline-block;
@@ -248,10 +274,149 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .ma-badge.rising { background: rgba(63,185,80,0.15); color: var(--green); }
 .ma-badge.falling { background: rgba(248,81,73,0.15); color: var(--red); }
 .ma-badge.flat { background: rgba(139,148,158,0.15); color: var(--text-secondary); }
-.watch-actions {
+.watch-price-info {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Inline options in watch card */
+.opts-section {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+.expiry-tabs-row {
     display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.expiry-tab {
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.expiry-tab:hover { border-color: var(--blue); }
+.expiry-tab.active {
+    background: var(--blue-dim);
+    border-color: var(--blue);
+    color: #fff;
+}
+.opt-inline-group { margin-bottom: 8px; }
+.opt-inline-label {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    padding: 2px 0;
+}
+.opt-inline-header {
+    display: grid;
+    grid-template-columns: 24px 70px 1fr 65px 55px 45px;
     gap: 4px;
-    margin-left: 12px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+}
+.opt-inline-row {
+    display: grid;
+    grid-template-columns: 24px 70px 1fr 65px 55px 45px;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 12px;
+}
+.opt-inline-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+.opt-inline-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--blue); }
+.opt-inline-strike { font-weight: 700; color: var(--yellow); font-size: 13px; }
+.opt-inline-name { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opt-inline-ba { color: var(--text-muted); font-size: 11px; text-align: right; }
+.opt-inline-last { font-weight: 600; text-align: right; }
+.opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
+
+@media (max-width: 600px) {
+    .opt-inline-header { grid-template-columns: 22px 60px 1fr 55px 45px; font-size: 9px; }
+    .opt-inline-row { grid-template-columns: 22px 60px 1fr 55px 45px; }
+    .opt-inline-ba { display: none; }
+    .opt-inline-header span:nth-child(4) { display: none; }
+}
+
+/* Exit strategy config */
+.exit-config {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+.exit-config-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+.exit-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+}
+.exit-option label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 100px;
+    margin: 0;
+}
+.exit-option input[type="checkbox"] {
+    accent-color: var(--blue);
+}
+.exit-option select, .exit-input {
+    padding: 3px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+.exit-input {
+    width: 60px;
+    text-align: center;
+}
+.exit-option input[type="time"] {
+    width: 90px;
+}
+.exit-actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+}
+.opt-inline-amt {
+    width: 100%;
+    text-align: center;
+    padding: 2px 4px;
+    font-size: 11px;
+}
+
+@media (max-width: 600px) {
+    .exit-option {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+    .exit-option > span {
+        padding-left: 20px;
+    }
 }
 
 /* Signals */
@@ -370,6 +535,32 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
 }
+
+/* Favorite chips */
+.fav-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: var(--text-primary);
+}
+.fav-chip:hover { border-color: var(--blue); background: rgba(88,166,255,0.1); }
+.fav-chip .type-tag { color: var(--text-muted); font-size: 10px; }
+.fav-chip .remove-fav {
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+}
+.fav-chip .remove-fav:hover { color: var(--red); }
 
 /* Empty state */
 .empty-state {

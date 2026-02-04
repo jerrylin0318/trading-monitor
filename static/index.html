@@ -73,8 +73,13 @@
                 <button class="btn btn-sm btn-primary" onclick="showAddWatch()">+ 新增</button>
             </div>
             <div class="card-body">
+                <!-- Favorites bar -->
+                <div id="favorites-bar" style="display:none; margin-bottom:12px;">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;" id="fav-chips"></div>
+                </div>
                 <!-- Add form (hidden by default) -->
                 <div id="add-watch-form" style="display:none; margin-bottom:16px;">
+                    <!-- Row 1: 標的 + 類型 + 策略方向 -->
                     <div class="form-row">
                         <div class="form-group">
                             <label>標的代碼</label>
@@ -89,10 +94,29 @@
                             </select>
                         </div>
                         <div class="form-group">
+                            <label>策略方向</label>
+                            <select id="w-strategy">
+                                <option value="BUY">買進 (做多)</option>
+                                <option value="SELL">賣出 (做空)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Row 2: 交易所 + 合約月份 + 幣別 -->
+                    <div class="form-row">
+                        <div class="form-group">
                             <label>交易所</label>
                             <input type="text" id="w-exchange" value="SMART">
                         </div>
+                        <div class="form-group" id="w-contract-group" style="display:none;">
+                            <label>合約月份</label>
+                            <select id="w-contract"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>幣別</label>
+                            <input type="text" id="w-currency" value="USD">
+                        </div>
                     </div>
+                    <!-- Row 3: MA + N點 + 按鈕 -->
                     <div class="form-row">
                         <div class="form-group">
                             <label>MA 週期</label>
@@ -102,13 +126,9 @@
                             <label>N 點</label>
                             <input type="number" id="w-n-points" value="5" step="0.1" min="0">
                         </div>
-                        <div class="form-group">
-                            <label>幣別</label>
-                            <input type="text" id="w-currency" value="USD">
-                        </div>
                         <div class="form-group" style="flex:0;">
                             <label>&nbsp;</label>
-                            <div style="display:flex;gap:4px;">
+                            <div style="display:flex;gap:6px;">
                                 <button class="btn btn-success btn-sm" onclick="addWatch()">確定</button>
                                 <button class="btn btn-sm" onclick="hideAddWatch()">取消</button>
                             </div>

@@ -119,6 +119,7 @@ class IBManager:
         for pos in positions:
             c = pos.contract
             result.append({
+                "conId": c.conId,
                 "symbol": c.symbol,
                 "secType": c.secType,
                 "exchange": c.exchange,
@@ -129,22 +130,27 @@ class IBManager:
                 "position": float(pos.position),
                 "avgCost": float(pos.avgCost),
                 "marketValue": None,
+                "marketPrice": None,
+                "unrealizedPNL": None,
             })
-        # Also try portfolio for market values
+        # Use portfolio directly for market values (more reliable matching by conId)
         portfolio = ib.portfolio()
         port_map = {}
         for p in portfolio:
-            key = f"{p.contract.symbol}_{p.contract.secType}_{p.contract.strike}_{p.contract.right}"
-            port_map[key] = {
-                "marketPrice": float(p.marketPrice),
-                "marketValue": float(p.marketValue),
-                "unrealizedPNL": float(p.unrealizedPNL),
-                "realizedPNL": float(p.realizedPNL),
+            port_map[p.contract.conId] = {
+                "marketPrice": float(p.marketPrice) if p.marketPrice else None,
+                "marketValue": float(p.marketValue) if p.marketValue else None,
+                "unrealizedPNL": float(p.unrealizedPNL) if p.unrealizedPNL is not None else None,
+                "realizedPNL": float(p.realizedPNL) if p.realizedPNL is not None else None,
             }
+            # Also map by symbol as fallback
+            port_map[p.contract.symbol] = port_map[p.contract.conId]
+        
         for item in result:
-            key = f"{item['symbol']}_{item['secType']}_{item['strike']}_{item['right']}"
-            if key in port_map:
-                item.update(port_map[key])
+            # Try conId first, then symbol
+            pdata = port_map.get(item.get("conId")) or port_map.get(item["symbol"])
+            if pdata:
+                item.update(pdata)
         return result
 
     async def get_positions(self) -> List[Dict[str, Any]]:
@@ -158,12 +164,14 @@ class IBManager:
             logger.error("Failed to get positions: %s", e)
             return []
 
-    def _make_contract(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART", currency: str = "USD") -> Contract:
+    def _make_contract(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART", 
+                       currency: str = "USD", contract_month: str = "") -> Contract:
         """Create a contract object."""
         if sec_type == "STK":
             return Stock(symbol, exchange, currency)
         elif sec_type == "FUT":
-            # For futures like MNQ, MES — need to handle continuous
+            if contract_month:
+                return Future(symbol, contract_month, exchange=exchange, currency=currency)
             return Future(symbol, exchange=exchange, currency=currency)
         elif sec_type == "IND":
             return Index(symbol, exchange, currency)
@@ -171,10 +179,10 @@ class IBManager:
             return Contract(symbol=symbol, secType=sec_type, exchange=exchange, currency=currency)
 
     def _sync_get_daily_bars(self, symbol: str, sec_type: str, exchange: str, currency: str, 
-                               duration: str, bar_size: str) -> Optional[pd.DataFrame]:
+                               duration: str, bar_size: str, contract_month: str = "") -> Optional[pd.DataFrame]:
         """Synchronous daily bars fetch."""
         ib = self._get_ib()
-        contract = self._make_contract(symbol, sec_type, exchange, currency)
+        contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month)
         qualified = ib.qualifyContracts(contract)
         if not qualified:
             logger.error("Could not qualify contract: %s", symbol)
@@ -197,7 +205,8 @@ class IBManager:
         return df
 
     async def get_daily_bars(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART",
-                             currency: str = "USD", duration: str = "6 M", bar_size: str = "1 day") -> Optional[pd.DataFrame]:
+                             currency: str = "USD", duration: str = "6 M", bar_size: str = "1 day",
+                             contract_month: str = "") -> Optional[pd.DataFrame]:
         """Fetch historical daily bars."""
         try:
             if not self.connected:
@@ -205,16 +214,17 @@ class IBManager:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 _ib_executor, 
-                lambda: self._sync_get_daily_bars(symbol, sec_type, exchange, currency, duration, bar_size)
+                lambda: self._sync_get_daily_bars(symbol, sec_type, exchange, currency, duration, bar_size, contract_month)
             )
         except Exception as e:
             logger.error("Failed to get daily bars for %s: %s", symbol, e)
             return None
 
-    def _sync_get_current_price(self, symbol: str, sec_type: str, exchange: str, currency: str) -> Optional[float]:
+    def _sync_get_current_price(self, symbol: str, sec_type: str, exchange: str, currency: str,
+                                contract_month: str = "") -> Optional[float]:
         """Synchronous price fetch."""
         ib = self._get_ib()
-        contract = self._make_contract(symbol, sec_type, exchange, currency)
+        contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month)
         qualified = ib.qualifyContracts(contract)
         if not qualified:
             return None
@@ -226,7 +236,7 @@ class IBManager:
         return float(price) if price and price > 0 else None
 
     async def get_current_price(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART",
-                                 currency: str = "USD") -> Optional[float]:
+                                 currency: str = "USD", contract_month: str = "") -> Optional[float]:
         """Get the current/last price for a symbol."""
         try:
             if not self.connected:
@@ -234,74 +244,75 @@ class IBManager:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 _ib_executor,
-                lambda: self._sync_get_current_price(symbol, sec_type, exchange, currency)
+                lambda: self._sync_get_current_price(symbol, sec_type, exchange, currency, contract_month)
             )
         except Exception as e:
             logger.error("Failed to get price for %s: %s", symbol, e)
             return None
 
-    def _sync_get_option_chain(self, symbol: str, sec_type: str, exchange: str, currency: str,
-                                 ma_price: float, right: str, num_strikes: int) -> List[Dict[str, Any]]:
-        """Synchronous option chain fetch."""
+    # ─── Option Chain (2-step: contracts + prices) ───
+    def _sync_get_option_contracts(self, symbol: str, sec_type: str, exchange: str, currency: str,
+                                    ma_price: float, right: str, num_strikes: int,
+                                    contract_month: str = "") -> List[Dict[str, Any]]:
+        """Step 1: Get option contract info (strikes, expiries) — NO market data request. Fast."""
         ib = self._get_ib()
-        contract = self._make_contract(symbol, sec_type, exchange, currency)
+        contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month)
         qualified = ib.qualifyContracts(contract)
         if not qualified:
             return []
         contract = qualified[0]
 
-        # Get option chains
-        chains = ib.reqSecDefOptParams(contract.symbol, "", contract.secType, contract.conId)
+        # For futures, use the exchange; for stocks, use ""
+        fut_fop_exchange = exchange if sec_type == "FUT" else ""
+        chains = ib.reqSecDefOptParams(contract.symbol, fut_fop_exchange, contract.secType, contract.conId)
         if not chains:
-            logger.warning("No option chains found for %s", symbol)
+            logger.warning("No option chains found for %s (exchange=%s)", symbol, fut_fop_exchange)
             return []
 
-        # Pick the chain with SMART exchange if available
-        chain = None
-        for c in chains:
-            if c.exchange == "SMART":
-                chain = c
-                break
-        if not chain:
+        # Pick SMART exchange chain for stocks, or first available for futures
+        if sec_type == "FUT":
             chain = chains[0]
+        else:
+            chain = next((c for c in chains if c.exchange == "SMART"), chains[0])
 
-        # Find nearest 2 expirations (at least 1 day out)
+        # Nearest 2 expirations (at least 1 day out)
         today = datetime.now()
         min_exp = today + timedelta(days=1)
         valid_exps = sorted([e for e in chain.expirations if datetime.strptime(e, "%Y%m%d") >= min_exp])
         if not valid_exps:
             return []
-        expirations_to_fetch = valid_exps[:2]  # nearest 2
+        expirations = valid_exps[:2]
 
-        # Get strikes sorted by proximity to MA
+        # OTM strikes
         all_strikes = sorted(chain.strikes)
-
-        # Filter OTM strikes
         if right == "C":
-            otm_strikes = [s for s in all_strikes if s > ma_price]
+            otm = [s for s in all_strikes if s > ma_price][:num_strikes]
         else:
-            otm_strikes = [s for s in all_strikes if s < ma_price]
-            otm_strikes = list(reversed(otm_strikes))
-
-        selected_strikes = otm_strikes[:num_strikes]
-        if not selected_strikes:
+            otm = list(reversed([s for s in all_strikes if s < ma_price]))[:num_strikes]
+        if not otm:
             return []
 
         result = []
-        for exp in expirations_to_fetch:
-            # Create option contracts
-            options = [Option(symbol, exp, strike, right, "SMART", currency=currency) for strike in selected_strikes]
-            qualified_opts = ib.qualifyContracts(*options)
-
+        opt_exchange = chain.exchange
+        is_fut = sec_type == "FUT"
+        logger.info("Using option exchange=%s for %s (FOP=%s, %d exps, %d strikes)", 
+                     opt_exchange, symbol, is_fut, len(expirations), len(otm))
+        for exp in expirations:
+            if is_fut:
+                # Futures Options (FOP) — use Contract directly with secType='FOP'
+                opts = []
+                for strike in otm:
+                    c = Contract(symbol=symbol, secType='FOP', exchange=opt_exchange,
+                                 currency=currency, lastTradeDateOrContractMonth=exp,
+                                 strike=strike, right=right, multiplier=chain.multiplier)
+                    opts.append(c)
+            else:
+                opts = [Option(symbol, exp, strike, right, opt_exchange, currency=currency) for strike in otm]
+            qualified_opts = ib.qualifyContracts(*opts)
             for opt in qualified_opts:
                 if opt.conId == 0:
                     continue
-                ticker = ib.reqMktData(opt, "", False, False)
-                util.sleep(0.5)
-                ib.cancelMktData(opt)
-
                 exp_label = f"{exp[4:6]}/{exp[6:8]}"
-                name = f"{opt.symbol} {exp_label} {opt.strike}{opt.right}"
                 result.append({
                     "conId": opt.conId,
                     "symbol": opt.symbol,
@@ -309,33 +320,85 @@ class IBManager:
                     "expiryLabel": exp_label,
                     "strike": float(opt.strike),
                     "right": opt.right,
-                    "name": name,
-                    "bid": float(ticker.bid) if ticker.bid and ticker.bid > 0 else None,
-                    "ask": float(ticker.ask) if ticker.ask and ticker.ask > 0 else None,
-                    "last": float(ticker.last) if ticker.last and ticker.last > 0 else None,
-                    "volume": int(ticker.volume) if ticker.volume and ticker.volume > 0 else 0,
+                    "name": f"{opt.symbol} {exp_label} {opt.strike}{opt.right}",
+                    "bid": None, "ask": None, "last": None, "volume": 0,
+                    "_contract": opt,  # keep for price refresh
                 })
+        logger.info("Got %d %s option contracts for %s (ma=%.2f)", len(result), right, symbol, ma_price)
         return result
+
+    def _sync_refresh_option_prices(self, options: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Step 2: Batch-fetch prices for cached option contracts using snapshots."""
+        ib = self._get_ib()
+        if not options:
+            return options
+
+        # Request all snapshots at once
+        tickers = []
+        for o in options:
+            contract = o.get("_contract")
+            if not contract:
+                # Reconstruct contract from data
+                contract = Option(o["symbol"], o["expiry"], o["strike"], o["right"], "SMART")
+                qualified = ib.qualifyContracts(contract)
+                if qualified:
+                    contract = qualified[0]
+                else:
+                    tickers.append(None)
+                    continue
+            ticker = ib.reqMktData(contract, "", True, False)  # snapshot=True
+            tickers.append((contract, ticker))
+
+        # Wait once for all snapshots
+        ib.sleep(2)
+
+        # Collect results and cancel
+        for i, item in enumerate(tickers):
+            if item is None:
+                continue
+            contract, ticker = item
+            try:
+                ib.cancelMktData(contract)
+            except:
+                pass
+            options[i]["bid"] = float(ticker.bid) if ticker.bid and ticker.bid > 0 else None
+            options[i]["ask"] = float(ticker.ask) if ticker.ask and ticker.ask > 0 else None
+            options[i]["last"] = float(ticker.last) if ticker.last and ticker.last > 0 else None
+            options[i]["volume"] = int(ticker.volume) if ticker.volume and ticker.volume > 0 else 0
+
+        logger.info("Refreshed prices for %d options", len(options))
+        return options
 
     async def get_option_chain(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART",
                                 currency: str = "USD", ma_price: float = 0,
-                                right: str = "C", num_strikes: int = 5) -> List[Dict[str, Any]]:
-        """
-        Fetch OTM option strikes closest to the MA price.
-        right: 'C' for calls, 'P' for puts
-        Returns num_strikes nearest OTM options with prices.
-        """
+                                right: str = "C", num_strikes: int = 5,
+                                contract_month: str = "") -> List[Dict[str, Any]]:
+        """Get option contracts (fast, no market data)."""
         try:
             if not self.connected:
                 return []
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 _ib_executor,
-                lambda: self._sync_get_option_chain(symbol, sec_type, exchange, currency, ma_price, right, num_strikes)
+                lambda: self._sync_get_option_contracts(symbol, sec_type, exchange, currency, ma_price, right, num_strikes, contract_month)
             )
         except Exception as e:
             logger.error("Failed to get option chain for %s: %s", symbol, e)
             return []
+
+    async def refresh_option_prices(self, options: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Refresh prices for cached option contracts (batch snapshot)."""
+        try:
+            if not self.connected or not options:
+                return options
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                _ib_executor,
+                lambda: self._sync_refresh_option_prices(options)
+            )
+        except Exception as e:
+            logger.error("Failed to refresh option prices: %s", e)
+            return options
 
     async def sleep(self, seconds: float = 0):
         """Keep IB event loop alive."""
