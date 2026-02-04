@@ -1,10 +1,18 @@
-"""IB Connection Manager — handles TWS connection, market data, account info, and option chains."""
+"""IB Connection Manager — handles TWS connection, market data, account info, and option chains.
+
+Architecture:
+  - Single-threaded executor for all IB operations (ib_insync is not thread-safe)
+  - Thread-local IB instance with delayed data (type 3)
+  - Streaming price subscriptions: subscribe once, read cached ticker values
+  - Account summary: persistent subscription (avoids Error 322)
+"""
 
 import asyncio
 import logging
+import math
 import threading
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
 from ib_insync import IB, Contract, Stock, Future, Option, Index, util
@@ -33,6 +41,12 @@ def _get_ib(host, port, client_id) -> IB:
 
 # Single thread executor - all IB ops run here
 _ib_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ib_")
+
+# Streaming price subscriptions: watch_id -> (Contract, Ticker)
+_subscriptions: Dict[str, Tuple[Contract, Any]] = {}
+
+# Account summary subscription state
+_account_subscribed = False
 
 
 class IBManager:
@@ -87,10 +101,21 @@ class IBManager:
             logger.info("Disconnected from IB")
 
     def _sync_get_account_summary(self) -> Dict[str, Any]:
-        """Synchronous account summary fetch."""
+        """Synchronous account summary fetch.
+
+        Uses persistent subscription to avoid Error 322 (max account summary requests).
+        First call subscribes; subsequent calls just read cached data.
+        """
+        global _account_subscribed
         ib = self._get_ib()
-        ib.reqAccountSummary()
-        util.sleep(1)
+
+        if not _account_subscribed:
+            ib.reqAccountSummary()
+            _account_subscribed = True
+            util.sleep(1)  # Wait for initial data
+        else:
+            ib.sleep(0.1)  # Process pending events to get latest data
+
         summary = ib.accountSummary()
         result = {}
         for item in summary:
@@ -399,6 +424,108 @@ class IBManager:
         except Exception as e:
             logger.error("Failed to refresh option prices: %s", e)
             return options
+
+    # ─── Streaming Price Subscriptions ───
+
+    def _sync_subscribe_price(self, watch_id: str, symbol: str, sec_type: str,
+                               exchange: str, currency: str, contract_month: str = "") -> bool:
+        """Subscribe to streaming market data for a watch item. Runs in executor thread."""
+        ib = self._get_ib()
+        contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month)
+        qualified = ib.qualifyContracts(contract)
+        if not qualified:
+            logger.error("Cannot qualify contract for subscription: %s", symbol)
+            return False
+        contract = qualified[0]
+        ticker = ib.reqMktData(contract, "", False, False)  # snapshot=False → streaming
+        _subscriptions[watch_id] = (contract, ticker)
+        logger.info("📡 Subscribed to price stream: %s (conId=%d)", symbol, contract.conId)
+        return True
+
+    def _sync_unsubscribe_price(self, watch_id: str):
+        """Unsubscribe from market data for a watch item."""
+        if watch_id in _subscriptions:
+            ib = self._get_ib()
+            contract, ticker = _subscriptions.pop(watch_id)
+            try:
+                ib.cancelMktData(contract)
+                logger.info("Unsubscribed: %s", contract.symbol)
+            except Exception as e:
+                logger.error("Error unsubscribing %s: %s", contract.symbol, e)
+
+    def _sync_unsubscribe_all(self):
+        """Unsubscribe all active price streams."""
+        ib = self._get_ib()
+        for watch_id in list(_subscriptions.keys()):
+            contract, ticker = _subscriptions.pop(watch_id)
+            try:
+                ib.cancelMktData(contract)
+            except Exception:
+                pass
+        logger.info("Unsubscribed all price streams")
+
+    def _sync_read_prices(self) -> Dict[str, float]:
+        """Read current prices from all active subscriptions.
+
+        Processes pending IB events, then reads cached ticker values.
+        Very fast — no new API requests.
+        """
+        ib = self._get_ib()
+        ib.sleep(0.1)  # Process pending messages from IB
+
+        prices = {}
+        for watch_id, (contract, ticker) in _subscriptions.items():
+            price = ticker.marketPrice()
+            if math.isnan(price):
+                # Fallback: try close price
+                price = ticker.close
+                if math.isnan(price):
+                    continue
+            if price > 0:
+                prices[watch_id] = float(price)
+        return prices
+
+    async def subscribe_price(self, watch_id: str, symbol: str, sec_type: str,
+                               exchange: str, currency: str, contract_month: str = "") -> bool:
+        """Subscribe to streaming price data (async wrapper)."""
+        try:
+            if not self.connected:
+                return False
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                _ib_executor,
+                lambda: self._sync_subscribe_price(watch_id, symbol, sec_type, exchange, currency, contract_month)
+            )
+        except Exception as e:
+            logger.error("Failed to subscribe %s: %s", symbol, e)
+            return False
+
+    async def unsubscribe_price(self, watch_id: str):
+        """Unsubscribe from streaming price data (async wrapper)."""
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(_ib_executor, lambda: self._sync_unsubscribe_price(watch_id))
+        except Exception as e:
+            logger.error("Failed to unsubscribe %s: %s", watch_id, e)
+
+    async def unsubscribe_all(self):
+        """Unsubscribe all price streams (async wrapper)."""
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(_ib_executor, self._sync_unsubscribe_all)
+        except Exception as e:
+            logger.error("Failed to unsubscribe all: %s", e)
+
+    async def read_prices(self) -> Dict[str, float]:
+        """Read all streaming prices (async wrapper). Fast — no API calls."""
+        try:
+            if not self.connected:
+                return {}
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(_ib_executor, self._sync_read_prices)
+        except Exception as e:
+            logger.error("Failed to read prices: %s", e)
+            return {}
 
     async def sleep(self, seconds: float = 0):
         """Keep IB event loop alive."""
