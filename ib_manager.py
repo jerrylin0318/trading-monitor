@@ -278,8 +278,12 @@ class IBManager:
     # ─── Option Chain (2-step: contracts + prices) ───
     def _sync_get_option_contracts(self, symbol: str, sec_type: str, exchange: str, currency: str,
                                     ma_price: float, right: str, num_strikes: int,
-                                    contract_month: str = "") -> List[Dict[str, Any]]:
-        """Step 1: Get option contract info (strikes, expiries) — NO market data request. Fast."""
+                                    contract_month: str = "", num_expirations: int = 5) -> List[Dict[str, Any]]:
+        """Step 1: Get option contract info (strikes, expiries) — NO market data request. Fast.
+
+        For futures: merges ALL chains (daily/weekly/monthly) and picks the nearest
+        num_expirations dates across all trading classes.
+        """
         ib = self._get_ib()
         contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month)
         qualified = ib.qualifyContracts(contract)
@@ -294,63 +298,119 @@ class IBManager:
             logger.warning("No option chains found for %s (exchange=%s)", symbol, fut_fop_exchange)
             return []
 
-        # Pick SMART exchange chain for stocks, or first available for futures
-        if sec_type == "FUT":
-            chain = chains[0]
-        else:
-            chain = next((c for c in chains if c.exchange == "SMART"), chains[0])
-
-        # Nearest 2 expirations (at least 1 day out)
-        today = datetime.now()
-        min_exp = today + timedelta(days=1)
-        valid_exps = sorted([e for e in chain.expirations if datetime.strptime(e, "%Y%m%d") >= min_exp])
-        if not valid_exps:
-            return []
-        expirations = valid_exps[:2]
-
-        # OTM strikes
-        all_strikes = sorted(chain.strikes)
-        if right == "C":
-            otm = [s for s in all_strikes if s > ma_price][:num_strikes]
-        else:
-            otm = list(reversed([s for s in all_strikes if s < ma_price]))[:num_strikes]
-        if not otm:
-            return []
-
-        result = []
-        opt_exchange = chain.exchange
         is_fut = sec_type == "FUT"
-        logger.info("Using option exchange=%s for %s (FOP=%s, %d exps, %d strikes)", 
-                     opt_exchange, symbol, is_fut, len(expirations), len(otm))
-        for exp in expirations:
-            if is_fut:
-                # Futures Options (FOP) — use Contract directly with secType='FOP'
+        today = datetime.now()
+        min_exp = today + timedelta(days=0)  # Include today (0DTE)
+
+        if is_fut:
+            # Merge ALL chains: collect (expiry, chain) pairs across all trading classes
+            exp_chain_map: Dict[str, Any] = {}  # expiry -> chain (prefer the one with most strikes)
+            all_strikes_merged = set()
+            for chain in chains:
+                for exp in chain.expirations:
+                    if datetime.strptime(exp, "%Y%m%d") >= min_exp:
+                        if exp not in exp_chain_map or len(chain.strikes) > len(exp_chain_map[exp].strikes):
+                            exp_chain_map[exp] = chain
+                all_strikes_merged.update(chain.strikes)
+
+            if not exp_chain_map:
+                return []
+
+            # Sort by date, pick nearest N
+            sorted_exps = sorted(exp_chain_map.keys())[:num_expirations]
+
+            # Use merged strikes for OTM selection
+            all_strikes = sorted(all_strikes_merged)
+            if right == "C":
+                otm = [s for s in all_strikes if s > ma_price][:num_strikes]
+            else:
+                otm = list(reversed([s for s in all_strikes if s < ma_price]))[:num_strikes]
+            if not otm:
+                return []
+
+            result = []
+            for exp in sorted_exps:
+                chain = exp_chain_map[exp]
+                opt_exchange = chain.exchange
+                # Use strikes available in THIS chain
+                chain_strikes = sorted(chain.strikes)
+                if right == "C":
+                    exp_otm = [s for s in chain_strikes if s > ma_price][:num_strikes]
+                else:
+                    exp_otm = list(reversed([s for s in chain_strikes if s < ma_price]))[:num_strikes]
+                if not exp_otm:
+                    continue
+
                 opts = []
-                for strike in otm:
+                for strike in exp_otm:
                     c = Contract(symbol=symbol, secType='FOP', exchange=opt_exchange,
                                  currency=currency, lastTradeDateOrContractMonth=exp,
-                                 strike=strike, right=right, multiplier=chain.multiplier)
+                                 strike=strike, right=right, multiplier=chain.multiplier,
+                                 tradingClass=chain.tradingClass)
                     opts.append(c)
+
+                qualified_opts = ib.qualifyContracts(*opts)
+                for opt in qualified_opts:
+                    if opt.conId == 0:
+                        continue
+                    exp_label = f"{exp[4:6]}/{exp[6:8]}"
+                    result.append({
+                        "conId": opt.conId,
+                        "symbol": opt.symbol,
+                        "expiry": opt.lastTradeDateOrContractMonth,
+                        "expiryLabel": exp_label,
+                        "strike": float(opt.strike),
+                        "right": opt.right,
+                        "tradingClass": opt.tradingClass,
+                        "name": f"{opt.symbol} {exp_label} {opt.strike}{opt.right}",
+                        "bid": None, "ask": None, "last": None, "volume": 0,
+                        "_contract": opt,
+                    })
+
+            logger.info("Got %d %s option contracts for %s across %d expirations (ma=%.2f)",
+                         len(result), right, symbol, len(sorted_exps), ma_price)
+            return result
+
+        else:
+            # Stocks: pick SMART chain, nearest expirations
+            chain = next((c for c in chains if c.exchange == "SMART"), chains[0])
+            valid_exps = sorted([e for e in chain.expirations if datetime.strptime(e, "%Y%m%d") >= min_exp])
+            if not valid_exps:
+                return []
+            expirations = valid_exps[:num_expirations]
+
+            all_strikes = sorted(chain.strikes)
+            if right == "C":
+                otm = [s for s in all_strikes if s > ma_price][:num_strikes]
             else:
+                otm = list(reversed([s for s in all_strikes if s < ma_price]))[:num_strikes]
+            if not otm:
+                return []
+
+            result = []
+            opt_exchange = chain.exchange
+            logger.info("Using option exchange=%s for %s (STK, %d exps, %d strikes)",
+                         opt_exchange, symbol, len(expirations), len(otm))
+            for exp in expirations:
                 opts = [Option(symbol, exp, strike, right, opt_exchange, currency=currency) for strike in otm]
-            qualified_opts = ib.qualifyContracts(*opts)
-            for opt in qualified_opts:
-                if opt.conId == 0:
-                    continue
-                exp_label = f"{exp[4:6]}/{exp[6:8]}"
-                result.append({
-                    "conId": opt.conId,
-                    "symbol": opt.symbol,
-                    "expiry": opt.lastTradeDateOrContractMonth,
-                    "expiryLabel": exp_label,
-                    "strike": float(opt.strike),
-                    "right": opt.right,
-                    "name": f"{opt.symbol} {exp_label} {opt.strike}{opt.right}",
-                    "bid": None, "ask": None, "last": None, "volume": 0,
-                    "_contract": opt,  # keep for price refresh
-                })
-        logger.info("Got %d %s option contracts for %s (ma=%.2f)", len(result), right, symbol, ma_price)
-        return result
+                qualified_opts = ib.qualifyContracts(*opts)
+                for opt in qualified_opts:
+                    if opt.conId == 0:
+                        continue
+                    exp_label = f"{exp[4:6]}/{exp[6:8]}"
+                    result.append({
+                        "conId": opt.conId,
+                        "symbol": opt.symbol,
+                        "expiry": opt.lastTradeDateOrContractMonth,
+                        "expiryLabel": exp_label,
+                        "strike": float(opt.strike),
+                        "right": opt.right,
+                        "name": f"{opt.symbol} {exp_label} {opt.strike}{opt.right}",
+                        "bid": None, "ask": None, "last": None, "volume": 0,
+                        "_contract": opt,
+                    })
+            logger.info("Got %d %s option contracts for %s (ma=%.2f)", len(result), right, symbol, ma_price)
+            return result
 
     def _sync_refresh_option_prices(self, options: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Step 2: Batch-fetch prices for cached option contracts using snapshots."""
@@ -397,7 +457,7 @@ class IBManager:
     async def get_option_chain(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART",
                                 currency: str = "USD", ma_price: float = 0,
                                 right: str = "C", num_strikes: int = 5,
-                                contract_month: str = "") -> List[Dict[str, Any]]:
+                                contract_month: str = "", num_expirations: int = 5) -> List[Dict[str, Any]]:
         """Get option contracts (fast, no market data)."""
         try:
             if not self.connected:
@@ -405,7 +465,7 @@ class IBManager:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 _ib_executor,
-                lambda: self._sync_get_option_contracts(symbol, sec_type, exchange, currency, ma_price, right, num_strikes, contract_month)
+                lambda: self._sync_get_option_contracts(symbol, sec_type, exchange, currency, ma_price, right, num_strikes, contract_month, num_expirations)
             )
         except Exception as e:
             logger.error("Failed to get option chain for %s: %s", symbol, e)
