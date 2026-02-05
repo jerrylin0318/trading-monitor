@@ -1117,6 +1117,13 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
                 </select>
                 <input type="number" id="exit-${watch.id}-ma-pts" value="${ex.maPts || 5}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','maPts',this.value)"> 點</span>
             </div>
+            <div class="exit-option">
+                <label><input type="checkbox" id="exit-${watch.id}-bb" ${ex.bb ? 'checked' : ''} onchange="saveExitSel('${watch.id}','bb',this.checked)"> 4️⃣ 布林帶平倉</label>
+                <span>價格觸及 <select id="exit-${watch.id}-bb-target" onchange="saveExitVal('${watch.id}','bbTarget',this.value)">
+                    <option value="middle" ${ex.bbTarget === 'middle' || !ex.bbTarget ? 'selected' : ''}>中軌</option>
+                    <option value="opposite" ${ex.bbTarget === 'opposite' ? 'selected' : ''}>反向軌</option>
+                </select></span>
+            </div>
             <div class="exit-actions">
                 <button class="btn btn-sm btn-success" onclick="placeOrder('${watch.id}')">📥 市價下單</button>
             </div>
@@ -1240,6 +1247,10 @@ async function placeOrder(watchId) {
             dir: ex.maDir || '+',
             pts: parseFloat(ex.maPts) || 5,
         },
+        bb: {
+            enabled: !!ex.bb,
+            target: ex.bbTarget || 'middle',  // 'middle' or 'opposite'
+        },
     };
 
     // Show confirmation
@@ -1247,6 +1258,7 @@ async function placeOrder(watchId) {
     if (exitConfig.limit.enabled) exitDesc.push(`限價止盈 ${exitConfig.limit.dir}${exitConfig.limit.pts}點`);
     if (exitConfig.time.enabled) exitDesc.push(`時間平倉 ${exitConfig.time.value}`);
     if (exitConfig.ma.enabled) exitDesc.push(`均線平倉 ${exitConfig.ma.cond === 'above' ? '高於' : '低於'}MA${exitConfig.ma.dir}${exitConfig.ma.pts}點`);
+    if (exitConfig.bb.enabled) exitDesc.push(`BB平倉 觸及${exitConfig.bb.target === 'middle' ? '中軌' : '反向軌'}`);
 
     let confirmMsg = `確認下單 ${w.symbol}？\n\n`;
     displayItems.forEach(d => {

@@ -449,6 +449,52 @@ async def monitor_loop():
                             trade["status"] = "closed"
                             await broadcast({"type": "trade_update", "trade": trade})
 
+                # BB-based exit (for Bollinger Bands strategy)
+                bb_exit = exit_cfg.get("bb", {})
+                if bb_exit.get("enabled") and trade["status"] != "exiting":
+                    threshold = engine._thresholds.get(watch_id)
+                    data = engine.latest_data.get(watch_id, {})
+                    if threshold and threshold.last_price > 0:
+                        current_price = threshold.last_price
+                        bb_middle = data.get("bb_middle") or data.get("ma_value")
+                        bb_upper = data.get("bb_upper")
+                        bb_lower = data.get("bb_lower")
+                        target_type = bb_exit.get("target", "middle")  # "middle" or "opposite"
+                        trade_dir = trade.get("direction", "BUY")
+
+                        triggered = False
+                        target_desc = ""
+
+                        if target_type == "middle" and bb_middle:
+                            # Exit when price reaches middle band
+                            if trade_dir == "BUY" and current_price >= bb_middle:
+                                triggered = True
+                                target_desc = f"中軌 {bb_middle:.2f}"
+                            elif trade_dir == "SELL" and current_price <= bb_middle:
+                                triggered = True
+                                target_desc = f"中軌 {bb_middle:.2f}"
+                        elif target_type == "opposite":
+                            # Exit when price reaches opposite band
+                            if trade_dir == "BUY" and bb_upper and current_price >= bb_upper:
+                                triggered = True
+                                target_desc = f"上軌 {bb_upper:.2f}"
+                            elif trade_dir == "SELL" and bb_lower and current_price <= bb_lower:
+                                triggered = True
+                                target_desc = f"下軌 {bb_lower:.2f}"
+
+                        if triggered:
+                            trade["status"] = "exiting"
+                            logger.info("📈 BB exit triggered for trade %s: price=%.2f → %s", trade_id, current_price, target_desc)
+                            for order_info in trade["orders"]:
+                                if order_info.get("conId") and order_info.get("qty_requested"):
+                                    try:
+                                        close_result = await ib.place_market_order(order_info["conId"], "SELL", order_info["qty_requested"])
+                                        order_info["exit_order"] = close_result
+                                    except Exception as e:
+                                        logger.error("BB exit order failed: %s", e)
+                            trade["status"] = "closed"
+                            await broadcast({"type": "trade_update", "trade": trade})
+
             # ── Hourly recalculation ──
             now = time.time()
             if now - last_calc_time >= 3600:
@@ -516,7 +562,7 @@ app = FastAPI(title="Trading Monitor", lifespan=lifespan)
 class OrderRequest(BaseModel):
     watch_id: str
     items: List[Dict[str, Any]]  # [{conId, right, strike, expiry, amount, ask}]
-    exit: Dict[str, Any] = {}     # {limit: {enabled, dir, pts}, time: {enabled, value}, ma: {enabled, cond, dir, pts}}
+    exit: Dict[str, Any] = {}     # {limit: {enabled, dir, pts}, time: {enabled, value}, ma: {enabled, cond, dir, pts}, bb: {enabled, target}}
 
 
 class WatchItemCreate(BaseModel):
