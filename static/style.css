@@ -122,6 +122,8 @@ body {
 .btn-success:hover { background: var(--green); }
 .btn-danger { background: var(--red-dim); border-color: var(--red-dim); color: #fff; }
 .btn-danger:hover { background: var(--red); }
+.btn-warning { background: #d29922; border-color: #d29922; color: #fff; }
+.btn-warning:hover { background: #e3b341; }
 .btn-sm { padding: 3px 10px; font-size: 12px; }
 .btn-icon { padding: 4px 8px; line-height: 1; }
 

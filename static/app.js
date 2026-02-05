@@ -1468,6 +1468,33 @@ function removeFavorite(symbol, secType) {
 let standaloneMode = false;
 let standaloneTicker = null;
 
+function toggleDemoMode() {
+    if (standaloneMode) {
+        // Exit demo mode
+        standaloneMode = false;
+        state.demoMode = false;
+        if (standaloneTicker) {
+            clearInterval(standaloneTicker);
+            standaloneTicker = null;
+        }
+        state.watchList = [];
+        state.latestData = {};
+        state.account = null;
+        state.positions = [];
+        renderAll();
+        log('已退出 Demo 模式', 'success');
+        document.getElementById('btn-demo').classList.remove('btn-warning');
+        // Reconnect WebSocket
+        if (ws) ws.close();
+        connectWS();
+    } else {
+        // Enter demo mode
+        if (ws) ws.close();
+        startStandaloneDemo();
+        document.getElementById('btn-demo').classList.add('btn-warning');
+    }
+}
+
 function startStandaloneDemo() {
     standaloneMode = true;
     state.connected = true;
