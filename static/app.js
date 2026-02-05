@@ -218,7 +218,7 @@ async function addWatch() {
     const item = {
         symbol,
         sec_type: secType,
-        strategy: document.getElementById('w-strategy').value,
+        direction: document.getElementById('w-direction').value,
         exchange: document.getElementById('w-exchange').value.trim() || 'SMART',
         currency: document.getElementById('w-currency').value.trim() || 'USD',
         ma_period: parseInt(document.getElementById('w-ma-period').value) || 21,
@@ -357,15 +357,15 @@ function renderWatchList() {
         const price = data.current_price ? data.current_price.toFixed(2) : '--';
         const ma = data.ma_value ? data.ma_value.toFixed(2) : '--';
         const dist = data.distance_from_ma != null ? data.distance_from_ma.toFixed(2) : '--';
-        const stratClass = w.strategy === 'BUY' ? 'BUY' : 'SELL';
-        const stratLabel = w.strategy === 'BUY' ? '📈 做多' : '📉 做空';
+        const stratClass = w.direction === 'LONG' ? 'BUY' : 'SELL';
+        const stratLabel = w.direction === 'LONG' ? '📈 做多' : '📉 做空';
         
         // 觸發區 + 有效性判斷
-        const maRight = (w.strategy === 'BUY' && dir === 'RISING') || (w.strategy === 'SELL' && dir === 'FALLING');
+        const maRight = (w.direction === 'LONG' && dir === 'RISING') || (w.direction === 'SHORT' && dir === 'FALLING');
         let zone = '--';
         let zoneActive = false;
         if (data.ma_value) {
-            if (w.strategy === 'BUY') {
+            if (w.direction === 'LONG') {
                 zone = `${data.ma_value.toFixed(2)} ~ ${(data.ma_value + w.n_points).toFixed(2)}`;
                 zoneActive = maRight && data.current_price >= data.ma_value && data.current_price <= data.ma_value + w.n_points;
             } else {
@@ -954,10 +954,10 @@ function startStandaloneDemo() {
                 locked_ma: lockedMa,
                 selected_expiry: selectedExpiry,
             };
-            // 5% chance signal — only if matches strategy direction
-            const strategy = w.strategy || 'BOTH';
-            const canBuy = (strategy === 'BUY' || strategy === 'BOTH') && rising;
-            const canSell = (strategy === 'SELL' || strategy === 'BOTH') && !rising;
+            // 5% chance signal — only if matches direction
+            const direction = w.direction || 'LONG';
+            const canBuy = direction === 'LONG' && rising;
+            const canSell = direction === 'SHORT' && !rising;
             if (Math.random() < 0.03 && w.enabled && (canBuy || canSell)) {
                 const sigType = canBuy ? 'BUY' : 'SELL';
                 const sig = { timestamp: new Date().toISOString(), watch_id: w.id, symbol: w.symbol,

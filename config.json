@@ -27,45 +27,6 @@
       "strategy": "BUY"
     },
     {
-      "id": "641ac30c",
-      "symbol": "MNQ",
-      "sec_type": "FUT",
-      "exchange": "CME",
-      "currency": "USD",
-      "ma_period": 5,
-      "n_points": 5.0,
-      "enabled": true,
-      "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "SELL"
-    },
-    {
-      "id": "eb45e03d",
-      "symbol": "MES",
-      "sec_type": "FUT",
-      "exchange": "CME",
-      "currency": "USD",
-      "ma_period": 21,
-      "n_points": 5.0,
-      "enabled": true,
-      "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "BUY"
-    },
-    {
-      "id": "644b1dba",
-      "symbol": "NQ",
-      "sec_type": "FUT",
-      "exchange": "CME",
-      "currency": "USD",
-      "ma_period": 21,
-      "n_points": 5.0,
-      "enabled": true,
-      "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "BUY"
-    },
-    {
       "id": "93010c3c",
       "symbol": "NQ",
       "sec_type": "FUT",
@@ -77,7 +38,20 @@
       "contract_month": "202603",
       "direction": "LONG",
       "strategy": "BUY"
+    },
+    {
+      "id": "1cf61505",
+      "symbol": "MES",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "strategy": "SELL"
     }
   ],
-  "saved_at": "2026-02-04T17:08:51.899143"
+  "saved_at": "2026-02-04T17:26:00.552157"
 }

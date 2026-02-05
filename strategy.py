@@ -42,7 +42,6 @@ class WatchItem:
     enabled: bool = True
     contract_month: str = ""  # YYYYMM for futures
     direction: str = "LONG"  # LONG or SHORT
-    strategy: str = "BOTH"  # BUY, SELL, BOTH
 
     def to_dict(self):
         return asdict(self)

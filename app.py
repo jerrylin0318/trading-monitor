@@ -73,6 +73,8 @@ def load_config():
         try:
             data = json.loads(CONFIG_FILE.read_text())
             for item_data in data.get("watch_list", []):
+                # Backward compat: remove deprecated 'strategy' field
+                item_data.pop("strategy", None)
                 item = WatchItem(**item_data)
                 engine.add_watch(item)
             logger.info("Loaded %d watch items from config", len(engine.watch_list))
@@ -489,7 +491,6 @@ class WatchItemCreate(BaseModel):
     enabled: bool = True
     contract_month: str = ""
     direction: str = "LONG"
-    strategy: str = "BOTH"
 
 
 class WatchItemUpdate(BaseModel):
@@ -502,7 +503,6 @@ class WatchItemUpdate(BaseModel):
     enabled: Optional[bool] = None
     contract_month: Optional[str] = None
     direction: Optional[str] = None
-    strategy: Optional[str] = None
 
 
 # --- API Routes ---
@@ -570,7 +570,6 @@ async def add_watch(item: WatchItemCreate):
         enabled=item.enabled,
         contract_month=item.contract_month,
         direction=item.direction,
-        strategy=item.strategy,
     )
     engine.add_watch(watch)
     save_config()
