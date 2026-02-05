@@ -529,6 +529,8 @@ class WatchItemCreate(BaseModel):
     enabled: bool = True
     contract_month: Optional[str] = ""
     direction: str = "LONG"
+    confirm_ma_enabled: bool = False
+    confirm_ma_period: int = 55
 
 
 class WatchItemUpdate(BaseModel):
@@ -539,6 +541,8 @@ class WatchItemUpdate(BaseModel):
     ma_period: Optional[int] = None
     n_points: Optional[float] = None
     enabled: Optional[bool] = None
+    confirm_ma_enabled: Optional[bool] = None
+    confirm_ma_period: Optional[int] = None
     contract_month: Optional[str] = None
     direction: Optional[str] = None
 
@@ -640,6 +644,8 @@ async def add_watch(item: WatchItemCreate):
         enabled=item.enabled,
         contract_month=item.contract_month or "",
         direction=item.direction,
+        confirm_ma_enabled=item.confirm_ma_enabled,
+        confirm_ma_period=item.confirm_ma_period,
     )
     engine.add_watch(watch)
     save_config()
@@ -744,6 +750,95 @@ async def get_thresholds():
         if t:
             result[watch_id] = t
     return result
+
+
+@app.get("/api/candles/{watch_id}")
+async def get_candles(watch_id: str):
+    """Get candlestick data for chart rendering."""
+    watch = engine.watch_list.get(watch_id)
+    if not watch:
+        raise HTTPException(status_code=404, detail="Watch not found")
+    
+    candles = engine.get_candles(watch_id)
+    
+    # If no cached candles, fetch from IB
+    if not candles and ib.connected:
+        try:
+            df = await ib.get_daily_bars(
+                symbol=watch.symbol,
+                sec_type=watch.sec_type,
+                exchange=watch.exchange,
+                currency=watch.currency,
+                duration="6 M",
+                bar_size="1 day",
+                contract_month=watch.contract_month or None,
+            )
+            if df is not None and len(df) > 0:
+                import time as _time
+                candles = []
+                for idx, row in df.tail(120).iterrows():
+                    ts = int(idx.timestamp()) if hasattr(idx, 'timestamp') else int(_time.time())
+                    candles.append({
+                        "time": ts,
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                    })
+                engine._candles[watch_id] = candles
+        except Exception as e:
+            logger.warning("Failed to fetch candles for %s: %s", watch.symbol, e)
+    
+    threshold = engine.get_threshold(watch_id)
+    ma_data = []
+    
+    # Calculate MA for chart overlay
+    confirm_ma_data = []
+    trigger_low = None
+    trigger_high = None
+    
+    if candles:
+        closes = [c["close"] for c in candles]
+        period = watch.ma_period
+        for i, c in enumerate(candles):
+            if i >= period - 1:
+                ma_val = sum(closes[i - period + 1:i + 1]) / period
+                ma_data.append({"time": c["time"], "value": round(ma_val, 4)})
+        
+        # Calculate confirm MA if enabled
+        if watch.confirm_ma_enabled and watch.confirm_ma_period > 0:
+            confirm_period = watch.confirm_ma_period
+            for i, c in enumerate(candles):
+                if i >= confirm_period - 1:
+                    ma_val = sum(closes[i - confirm_period + 1:i + 1]) / confirm_period
+                    confirm_ma_data.append({"time": c["time"], "value": round(ma_val, 4)})
+        
+        # Calculate trigger zone from latest MA
+        if len(ma_data) >= 2:
+            current_ma = ma_data[-1]["value"]
+            prev_ma = ma_data[-2]["value"]
+            ma_rising = current_ma > prev_ma
+            ma_falling = current_ma < prev_ma
+            
+            if ma_rising:
+                trigger_low = current_ma
+                trigger_high = current_ma + watch.n_points
+            elif ma_falling:
+                trigger_low = current_ma - watch.n_points
+                trigger_high = current_ma
+    
+    return {
+        "symbol": watch.symbol,
+        "candles": candles,
+        "ma": ma_data,
+        "ma_period": watch.ma_period,
+        "confirm_ma": confirm_ma_data if watch.confirm_ma_enabled else None,
+        "confirm_ma_period": watch.confirm_ma_period if watch.confirm_ma_enabled else None,
+        "n_points": watch.n_points,
+        "direction": watch.direction,
+        "trigger_low": trigger_low if trigger_low else (threshold.trigger_low if threshold else None),
+        "trigger_high": trigger_high if trigger_high else (threshold.trigger_high if threshold else None),
+    }
 
 
 @app.get("/api/debug/options-cache")

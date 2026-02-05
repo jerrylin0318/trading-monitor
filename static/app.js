@@ -9,12 +9,19 @@ let state = {
     demoMode: false,
     watchList: [],
     expandedWatch: null,
+    expandedChart: null,  // watch_id of expanded chart
     signals: [],
     optSelections: {},  // { watchId: { optId: { checked, amount }, exitProfit: bool, ... } }
     latestData: {},
     account: {},
     positions: [],
 };
+
+// Chart instances cache
+const charts = {};        // { watchId: chart }
+const chartSeries = {};   // { watchId: { candle, ma } }
+const todayCandle = {};   // { watchId: { time, open, high, low, close } }
+let lastChartRender = 0;
 
 // ─── Authentication ───
 function getStoredAuth() {
@@ -199,7 +206,20 @@ function handleMessage(msg) {
             if (prev.selected_expiry && !msg.data.selected_expiry) {
                 state.latestData[msg.watch_id].selected_expiry = prev.selected_expiry;
             }
-            renderWatchList();
+            // If chart is expanded, only update prices (don't destroy chart)
+            if (state.expandedChart && chartSeries[state.expandedChart]) {
+                updatePriceDisplays(msg.watch_id, msg.data);
+                // Update live candle
+                if (state.expandedChart === msg.watch_id) {
+                    updateLiveCandle(msg.watch_id, msg.data.current_price);
+                }
+            } else {
+                renderWatchList();
+                // Render chart if just expanded
+                if (state.expandedChart && !chartSeries[state.expandedChart]) {
+                    setTimeout(() => renderChart(state.expandedChart), 100);
+                }
+            }
             break;
         }
         case 'watch_update':
@@ -344,6 +364,17 @@ async function addWatch() {
     const symbol = document.getElementById('w-symbol').value.trim().toUpperCase();
     if (!symbol) return;
     const secType = document.getElementById('w-sectype').value;
+    
+    // 期貨必須選擇合約月份
+    if (secType === 'FUT') {
+        const contractMonth = document.getElementById('w-contract').value;
+        if (!contractMonth) {
+            log('期貨必須選擇合約月份', 'error');
+            return;
+        }
+    }
+    
+    const confirmMaEnabled = document.getElementById('w-confirm-ma-enabled').checked;
     const item = {
         symbol,
         sec_type: secType,
@@ -353,6 +384,8 @@ async function addWatch() {
         ma_period: parseInt(document.getElementById('w-ma-period').value) || 21,
         n_points: parseFloat(document.getElementById('w-n-points').value) || 5,
         contract_month: secType === 'FUT' ? document.getElementById('w-contract').value : null,
+        confirm_ma_enabled: confirmMaEnabled,
+        confirm_ma_period: confirmMaEnabled ? parseInt(document.getElementById('w-confirm-ma-period').value) || 55 : 55,
         enabled: true,
     };
     const res = await api('/api/watch', 'POST', item);
@@ -503,13 +536,20 @@ function renderWatchList() {
             }
         }
         const zoneStatus = !data.ma_value ? '' : zoneActive ? '🟢' : maRight ? '🟡' : '⚪';
+        
+        // Confirmation MA status
+        const confirmEnabled = w.confirm_ma_enabled || data.confirm_ma_enabled;
+        const confirmOk = data.confirm_ma_ok !== false;  // Default true if not set
+        const confirmDir = data.confirm_ma_direction || '--';
+        const confirmDirLabel = confirmDir === 'RISING' ? '↑' : confirmDir === 'FALLING' ? '↓' : '—';
+        const confirmStatus = confirmEnabled ? (confirmOk ? '✓' : '✗') : '';
 
         const callOpts = data.options_call || [];
         const putOpts = data.options_put || [];
         const expanded = state.expandedWatch === w.id;
 
         html += `
-        <div class="watch-item ${w.enabled ? '' : 'disabled'}">
+        <div class="watch-item ${w.enabled ? '' : 'disabled'}" data-watch-id="${w.id}">
             <div class="watch-top-row">
                 <div class="watch-symbol">
                     <span class="strategy-badge ${stratClass}">${stratLabel}</span>
@@ -525,6 +565,7 @@ function renderWatchList() {
             <div class="watch-details">
                 <span>MA${w.ma_period}</span>
                 <span>N=${w.n_points}</span>
+                ${confirmEnabled ? `<span style="color:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmDirLabel}${confirmStatus}</span>` : ''}
                 <span>價格: ${price}</span>
                 <span>MA: ${ma}</span>
                 <span>距離: ${dist}</span>
@@ -535,16 +576,41 @@ function renderWatchList() {
                     <span class="trigger-zone ${zoneActive ? 'active' : maRight ? 'ready' : ''}" title="${maRight ? (zoneActive ? '條件滿足！' : 'MA方向正確，等待價格進入') : 'MA方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
                 </div>
                 <div style="display:flex;gap:4px;">
+                    <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">
+                        ${state.expandedChart === w.id ? '📉' : '📈'}
+                    </button>
                     ${expanded ? `<button class="btn btn-sm" onclick="updateOptionPrices('${w.id}')" title="更新報價">🔄</button>` : ''}
                     <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
                         ${expanded ? '收起 ▲' : '選擇權 ▼'}
                     </button>
                 </div>
             </div>
+            ${state.expandedChart === w.id ? `<div class="chart-container" id="chart-${w.id}"></div>` : ''}
             ${expanded ? renderInlineOptions(w, data, callOpts, putOpts, price) : ''}
         </div>`;
     }
     container.innerHTML = html;
+}
+
+// Lightweight price update without full DOM re-render (when chart is open)
+function updatePriceDisplays(watchId, data) {
+    // Find the watch item by index in watchList
+    const idx = state.watchList.findIndex(w => w.id === watchId);
+    if (idx < 0) return;
+    
+    const items = document.querySelectorAll('.watch-item');
+    if (idx >= items.length) return;
+    
+    const item = items[idx];
+    const details = item.querySelector('.watch-details');
+    if (details && data.current_price) {
+        const spans = details.querySelectorAll('span');
+        if (spans.length >= 5) {
+            spans[2].textContent = `價格: ${data.current_price.toFixed(2)}`;
+            spans[3].textContent = `MA: ${(data.ma_value || 0).toFixed(2)}`;
+            spans[4].textContent = `距離: ${(data.distance_from_ma || 0).toFixed(2)}`;
+        }
+    }
 }
 
 async function resetOptions(watchId) {
@@ -596,6 +662,213 @@ async function updateOptionPrices(watchId) {
     } catch (e) {
         log(`更新失敗: ${e.message}`, 'error');
     }
+}
+
+// ─── Chart Functions ───
+
+// Update today's live candle and MA with new price
+function updateLiveCandle(watchId, price) {
+    if (!price || !chartSeries[watchId]?.candle) return;
+    
+    const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+    
+    // Update live MA point
+    const data = state.latestData[watchId];
+    if (data?.ma_value && chartSeries[watchId]?.ma) {
+        chartSeries[watchId].ma.update({ time: todayTime, value: data.ma_value });
+    }
+    
+    // Update live confirm MA point
+    if (data?.confirm_ma_value && chartSeries[watchId]?.confirmMa) {
+        chartSeries[watchId].confirmMa.update({ time: todayTime, value: data.confirm_ma_value });
+    }
+    
+    if (!todayCandle[watchId] || todayCandle[watchId].time < todayTime) {
+        // New day - create new candle
+        todayCandle[watchId] = {
+            time: todayTime,
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+        };
+    } else {
+        // Update existing candle
+        todayCandle[watchId].close = price;
+        todayCandle[watchId].high = Math.max(todayCandle[watchId].high, price);
+        todayCandle[watchId].low = Math.min(todayCandle[watchId].low, price);
+    }
+    
+    chartSeries[watchId].candle.update(todayCandle[watchId]);
+}
+
+async function toggleChart(watchId) {
+    if (state.expandedChart === watchId) {
+        // Collapse chart
+        state.expandedChart = null;
+        if (charts[watchId]) {
+            charts[watchId].remove();
+            delete charts[watchId];
+        }
+        delete chartSeries[watchId];
+        delete todayCandle[watchId];
+    } else {
+        // Expand chart — close other chart first
+        if (state.expandedChart && charts[state.expandedChart]) {
+            charts[state.expandedChart].remove();
+            delete charts[state.expandedChart];
+        }
+        state.expandedChart = watchId;
+    }
+    renderWatchList();
+    
+    // Render chart after DOM update
+    if (state.expandedChart === watchId) {
+        setTimeout(() => renderChart(watchId), 50);
+    }
+}
+
+async function renderChart(watchId) {
+    const container = document.getElementById(`chart-${watchId}`);
+    if (!container) return;
+    if (typeof LightweightCharts === 'undefined') {
+        container.innerHTML = '<div style="padding:20px;color:var(--red)">圖表庫載入失敗</div>';
+        return;
+    }
+    
+    // Fetch candle data
+    let chartData;
+    try {
+        const res = await fetch(`${API}/api/candles/${watchId}`, {
+            headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+        });
+        chartData = await res.json();
+    } catch (e) {
+        container.innerHTML = '<div style="padding:20px;color:var(--text-muted)">載入圖表失敗</div>';
+        return;
+    }
+    
+    if (!chartData.candles?.length) {
+        container.innerHTML = '<div style="padding:20px;color:var(--text-muted)">無K線數據</div>';
+        return;
+    }
+    
+    // Create chart
+    const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: 280,
+        layout: {
+            background: { color: '#0d1117' },
+            textColor: '#8b949e',
+        },
+        grid: {
+            vertLines: { color: '#21262d' },
+            horzLines: { color: '#21262d' },
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+            borderColor: '#30363d',
+        },
+        timeScale: {
+            borderColor: '#30363d',
+            timeVisible: true,
+        },
+    });
+    charts[watchId] = chart;
+    
+    // Candlestick series
+    const candleSeries = chart.addCandlestickSeries({
+        upColor: '#238636',
+        downColor: '#da3633',
+        borderUpColor: '#238636',
+        borderDownColor: '#da3633',
+        wickUpColor: '#238636',
+        wickDownColor: '#da3633',
+    });
+    candleSeries.setData(chartData.candles);
+    
+    // Store series reference for live updates
+    chartSeries[watchId] = { candle: candleSeries, ma: null };
+    
+    // Initialize today's candle from current price
+    const data = state.latestData[watchId];
+    if (data?.current_price) {
+        const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;  // Start of today UTC
+        const lastCandle = chartData.candles[chartData.candles.length - 1];
+        
+        // Only add today's candle if it's a new day
+        if (lastCandle.time < todayTime) {
+            todayCandle[watchId] = {
+                time: todayTime,
+                open: data.current_price,
+                high: data.current_price,
+                low: data.current_price,
+                close: data.current_price,
+            };
+            candleSeries.update(todayCandle[watchId]);
+        }
+    }
+    
+    // MA line
+    let maSeries = null;
+    if (chartData.ma?.length) {
+        maSeries = chart.addLineSeries({
+            color: '#f0883e',
+            lineWidth: 2,
+            title: `MA${chartData.ma_period}`,
+        });
+        maSeries.setData(chartData.ma);
+        chartSeries[watchId].ma = maSeries;
+    }
+    
+    // Confirm MA line (if enabled)
+    if (chartData.confirm_ma?.length) {
+        const confirmMaSeries = chart.addLineSeries({
+            color: '#58a6ff',  // Blue color for confirm MA
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            title: `確認MA${chartData.confirm_ma_period}`,
+        });
+        confirmMaSeries.setData(chartData.confirm_ma);
+        chartSeries[watchId].confirmMa = confirmMaSeries;
+    }
+    
+    // Trigger zone markers (horizontal lines)
+    if (chartData.trigger_low && chartData.trigger_high) {
+        const zoneSeries = chart.addLineSeries({
+            color: chartData.direction === 'LONG' ? '#238636' : '#da3633',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: false,
+        });
+        const lastTime = chartData.candles[chartData.candles.length - 1].time;
+        zoneSeries.setData([
+            { time: lastTime - 86400 * 30, value: chartData.trigger_low },
+            { time: lastTime, value: chartData.trigger_low },
+        ]);
+        const zoneSeries2 = chart.addLineSeries({
+            color: chartData.direction === 'LONG' ? '#238636' : '#da3633',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: false,
+        });
+        zoneSeries2.setData([
+            { time: lastTime - 86400 * 30, value: chartData.trigger_high },
+            { time: lastTime, value: chartData.trigger_high },
+        ]);
+    }
+    
+    // Resize handler
+    const resizeObserver = new ResizeObserver(() => {
+        chart.applyOptions({ width: container.clientWidth });
+    });
+    resizeObserver.observe(container);
+    
+    chart.timeScale().fitContent();
 }
 
 function toggleExpand(watchId) {
@@ -1191,6 +1464,10 @@ function initApp() {
     document.getElementById('w-symbol').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') addWatch();
     });
+    
+    // Update contract months when symbol changes (for different futures types)
+    document.getElementById('w-symbol').addEventListener('change', updateContractDropdown);
+    document.getElementById('w-symbol').addEventListener('blur', updateContractDropdown);
 
     // Show/hide contract month for futures
     document.getElementById('w-sectype').addEventListener('change', updateContractDropdown);
@@ -1209,15 +1486,18 @@ window.addEventListener('load', async () => {
 
 function updateContractDropdown() {
     const secType = document.getElementById('w-sectype').value;
+    const symbol = document.getElementById('w-symbol').value.trim().toUpperCase();
     const group = document.getElementById('w-contract-group');
     const select = document.getElementById('w-contract');
     const exchangeInput = document.getElementById('w-exchange');
     if (secType === 'FUT') {
         group.style.display = 'block';
-        exchangeInput.value = 'CME';  // 期貨自動設為 CME
-        const months = getNearestContractMonths(2);
+        // 金屬期貨用 COMEX，其他用 CME
+        const metalSymbols = ['GC', 'MGC', 'SI', 'HG', 'PA', 'PL'];
+        exchangeInput.value = metalSymbols.includes(symbol) ? 'COMEX' : 'CME';
+        const months = getNearestContractMonths(3, symbol);  // 顯示3個月份
         select.innerHTML = months.map((m, i) => 
-            `<option value="${m.value}">${m.label}${i === 0 ? ' (近月)' : ' (次近月)'}</option>`
+            `<option value="${m.value}">${m.label}${i === 0 ? ' (近月)' : ''}</option>`
         ).join('');
     } else {
         group.style.display = 'none';
@@ -1259,10 +1539,29 @@ function getNearestExpiries(count) {
     return results;
 }
 
-function getNearestContractMonths(count) {
-    // Futures typically have quarterly contracts: Mar(H), Jun(M), Sep(U), Dec(Z)
-    const codes = ['H', 'M', 'U', 'Z']; // Mar, Jun, Sep, Dec
-    const codeMonths = [3, 6, 9, 12];
+function getNearestContractMonths(count, symbol = '') {
+    // Different futures have different contract months:
+    // - Index (ES, MES, NQ, MNQ, BRR, MBT): Quarterly (3, 6, 9, 12)
+    // - Metals (GC, MGC, SI, HG): Bi-monthly (2, 4, 6, 8, 10, 12)
+    // - Energy (CL, NG): Monthly (1-12)
+    
+    const sym = symbol.toUpperCase();
+    let codeMonths, codes;
+    
+    if (['GC', 'MGC', 'SI', 'HG', 'PA', 'PL'].includes(sym)) {
+        // Metals: bi-monthly
+        codeMonths = [2, 4, 6, 8, 10, 12];
+        codes = ['G', 'J', 'M', 'Q', 'V', 'Z'];
+    } else if (['CL', 'NG', 'RB', 'HO'].includes(sym)) {
+        // Energy: monthly
+        codeMonths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        codes = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'];
+    } else {
+        // Default: quarterly (ES, MES, NQ, MNQ, etc.)
+        codeMonths = [3, 6, 9, 12];
+        codes = ['H', 'M', 'U', 'Z'];
+    }
+    
     const now = new Date();
     let year = now.getFullYear();
     let month = now.getMonth() + 1;

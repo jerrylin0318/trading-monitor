@@ -42,6 +42,8 @@ class WatchItem:
     enabled: bool = True
     contract_month: str = ""  # YYYYMM for futures
     direction: str = "LONG"  # LONG or SHORT
+    confirm_ma_enabled: bool = False  # Enable MA confirmation
+    confirm_ma_period: int = 55  # Confirmation MA period
 
     def to_dict(self):
         return asdict(self)
@@ -70,7 +72,7 @@ class ThresholdCache:
     """Pre-calculated trigger thresholds — recalculated hourly from daily bars.
 
     The monitor loop reads streaming prices and compares against these values.
-    No MA recalculation needed on each tick.
+    Real-time MA is calculated using historical closes + current price.
     """
     ma_value: float
     prev_ma: float
@@ -88,6 +90,15 @@ class ThresholdCache:
     ma_period: int = 0
     buy_zone: Optional[str] = None
     sell_zone: Optional[str] = None
+    
+    # Historical closes for real-time MA calculation (last N-1 closes, excludes today)
+    hist_closes: List[float] = None  # type: ignore
+    confirm_hist_closes: List[float] = None  # type: ignore
+    
+    # Confirmation MA
+    confirm_ma_value: Optional[float] = None
+    confirm_ma_direction: Optional[str] = None  # "RISING", "FALLING", "FLAT"
+    confirm_ma_ok: bool = True  # Whether confirmation condition is met
 
 
 @dataclass
@@ -112,6 +123,7 @@ class StrategyEngine:
         self.signals: List[Signal] = []
         self.latest_data: Dict[str, Dict[str, Any]] = {}  # watch_id -> frontend data
         self._thresholds: Dict[str, ThresholdCache] = {}   # watch_id -> cached thresholds
+        self._candles: Dict[str, List[Dict]] = {}  # watch_id -> [{time, open, high, low, close}]
         self.active_trades: Dict[str, ActiveTrade] = {}
         self._running = False
 
@@ -136,7 +148,12 @@ class StrategyEngine:
             del self.watch_list[watch_id]
         self._thresholds.pop(watch_id, None)
         self.latest_data.pop(watch_id, None)
+        self._candles.pop(watch_id, None)
         logger.info("Removed watch: %s", watch_id)
+
+    def get_candles(self, watch_id: str) -> List[Dict]:
+        """Get stored candles for a watch item."""
+        return self._candles.get(watch_id, [])
 
     def update_watch(self, watch_id: str, updates: Dict[str, Any]):
         if watch_id in self.watch_list:
@@ -184,11 +201,16 @@ class StrategyEngine:
                 return None
             current_ma = float(ma.iloc[-1])
             prev_ma = float(ma.iloc[-2])
+            # Extract last N-1 closes for real-time MA (excludes today)
+            hist_closes = list(df["close"].tail(watch.ma_period - 1).astype(float))
         else:
             if len(ma) < 2 or ma[-1] is None or ma[-2] is None:
                 return None
             current_ma = float(ma[-1])
             prev_ma = float(ma[-2])
+            # Extract last N-1 closes for real-time MA
+            closes = [row["close"] for row in df] if isinstance(df, list) else list(df["close"])
+            hist_closes = [float(c) for c in closes[-(watch.ma_period - 1):]]
 
         ma_rising = current_ma > prev_ma
         ma_falling = current_ma < prev_ma
@@ -213,6 +235,48 @@ class StrategyEngine:
 
         ma_direction = "RISING" if ma_rising else ("FALLING" if ma_falling else "FLAT")
 
+        # Calculate confirmation MA if enabled
+        confirm_ma_value = None
+        confirm_ma_direction = None
+        confirm_ma_ok = True  # Default: no confirmation required
+        confirm_hist_closes = None
+        
+        if watch.confirm_ma_enabled and watch.confirm_ma_period > 0:
+            if length >= watch.confirm_ma_period + 1:
+                confirm_ma = self.calculate_ma(df, watch.confirm_ma_period)
+                if HAS_PANDAS and hasattr(confirm_ma, 'iloc'):
+                    if len(confirm_ma) >= 2 and not pd.isna(confirm_ma.iloc[-1]) and not pd.isna(confirm_ma.iloc[-2]):
+                        confirm_current = float(confirm_ma.iloc[-1])
+                        confirm_prev = float(confirm_ma.iloc[-2])
+                        confirm_ma_value = round(confirm_current, 4)
+                        confirm_hist_closes = list(df["close"].tail(watch.confirm_ma_period - 1).astype(float))
+                        if confirm_current > confirm_prev:
+                            confirm_ma_direction = "RISING"
+                        elif confirm_current < confirm_prev:
+                            confirm_ma_direction = "FALLING"
+                        else:
+                            confirm_ma_direction = "FLAT"
+                else:
+                    if len(confirm_ma) >= 2 and confirm_ma[-1] is not None and confirm_ma[-2] is not None:
+                        confirm_current = float(confirm_ma[-1])
+                        confirm_prev = float(confirm_ma[-2])
+                        confirm_ma_value = round(confirm_current, 4)
+                        closes = [row["close"] for row in df] if isinstance(df, list) else list(df["close"])
+                        confirm_hist_closes = [float(c) for c in closes[-(watch.confirm_ma_period - 1):]]
+                        if confirm_current > confirm_prev:
+                            confirm_ma_direction = "RISING"
+                        elif confirm_current < confirm_prev:
+                            confirm_ma_direction = "FALLING"
+                        else:
+                            confirm_ma_direction = "FLAT"
+                
+                # Check if confirmation condition is met
+                if confirm_ma_direction:
+                    if watch.direction == "LONG":
+                        confirm_ma_ok = confirm_ma_direction == "RISING"
+                    else:  # SHORT
+                        confirm_ma_ok = confirm_ma_direction == "FALLING"
+
         cache = ThresholdCache(
             ma_value=round(current_ma, 4),
             prev_ma=round(prev_ma, 4),
@@ -227,9 +291,38 @@ class StrategyEngine:
             ma_period=watch.ma_period,
             buy_zone=buy_zone,
             sell_zone=sell_zone,
+            hist_closes=hist_closes,
+            confirm_hist_closes=confirm_hist_closes,
+            confirm_ma_value=confirm_ma_value,
+            confirm_ma_direction=confirm_ma_direction,
+            confirm_ma_ok=confirm_ma_ok,
         )
 
         self._thresholds[watch_id] = cache
+
+        # Store candles for chart (last 120 bars — about 6 months of daily data)
+        candles = []
+        if HAS_PANDAS and hasattr(df, 'iterrows'):
+            for idx, row in df.tail(120).iterrows():
+                ts = int(idx.timestamp()) if hasattr(idx, 'timestamp') else int(time.time())
+                candles.append({
+                    "time": ts,
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                })
+        else:
+            # Fallback for list of dicts
+            for row in (df[-120:] if len(df) > 120 else df):
+                candles.append({
+                    "time": int(row.get("time", time.time())),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                })
+        self._candles[watch_id] = candles
 
         # Populate latest_data for frontend (no price yet — will be updated by check_price)
         self.latest_data[watch_id] = {
@@ -254,9 +347,10 @@ class StrategyEngine:
     # ─── Price Check (streaming, every tick) ───
 
     def check_price(self, watch_id: str, price: float) -> Optional[Signal]:
-        """Check if streaming price triggers a signal using pre-calculated thresholds.
+        """Check if streaming price triggers a signal using real-time MA calculation.
 
-        Called on every price update from IB streaming. Very fast — just comparisons.
+        Called on every price update from IB streaming.
+        Calculates MA using historical closes + current price for accurate trigger.
         Returns Signal if triggered, None otherwise.
         """
         cache = self._thresholds.get(watch_id)
@@ -266,33 +360,99 @@ class StrategyEngine:
         watch = self.watch_list.get(watch_id)
         if not watch or not watch.enabled:
             return None
+        
+        # Calculate real-time MA using historical closes + current price
+        if cache.hist_closes:
+            realtime_ma = (sum(cache.hist_closes) + price) / len(cache.hist_closes + [price])
+            prev_ma = cache.ma_value  # Yesterday's MA as reference for direction
+        else:
+            realtime_ma = cache.ma_value  # Fallback to cached MA
+            prev_ma = cache.prev_ma
+        
+        # Determine real-time MA direction and trigger zone
+        ma_rising = realtime_ma > prev_ma
+        ma_falling = realtime_ma < prev_ma
+        
+        trigger_low = 0.0
+        trigger_high = 0.0
+        signal_type = None
+        ma_direction = "FLAT"
+        buy_zone = None
+        sell_zone = None
+        
+        if ma_rising:
+            trigger_low = realtime_ma
+            trigger_high = realtime_ma + watch.n_points
+            signal_type = "BUY"
+            ma_direction = "RISING"
+            buy_zone = f"{round(realtime_ma, 2)} ~ {round(realtime_ma + watch.n_points, 2)}"
+        elif ma_falling:
+            trigger_low = realtime_ma - watch.n_points
+            trigger_high = realtime_ma
+            signal_type = "SELL"
+            ma_direction = "FALLING"
+            sell_zone = f"{round(realtime_ma - watch.n_points, 2)} ~ {round(realtime_ma, 2)}"
+        
+        # Calculate real-time confirmation MA if enabled
+        confirm_ma_value = cache.confirm_ma_value
+        confirm_ma_direction = cache.confirm_ma_direction
+        confirm_ma_ok = True
+        
+        if watch.confirm_ma_enabled and cache.confirm_hist_closes:
+            confirm_realtime_ma = (sum(cache.confirm_hist_closes) + price) / len(cache.confirm_hist_closes + [price])
+            confirm_prev_ma = cache.confirm_ma_value or confirm_realtime_ma
+            confirm_ma_value = round(confirm_realtime_ma, 4)
+            
+            if confirm_realtime_ma > confirm_prev_ma:
+                confirm_ma_direction = "RISING"
+            elif confirm_realtime_ma < confirm_prev_ma:
+                confirm_ma_direction = "FALLING"
+            else:
+                confirm_ma_direction = "FLAT"
+            
+            # Check if confirmation condition is met
+            if watch.direction == "LONG":
+                confirm_ma_ok = confirm_ma_direction == "RISING"
+            else:  # SHORT
+                confirm_ma_ok = confirm_ma_direction == "FALLING"
 
         # Update latest_data for frontend display
-        distance = round(price - cache.ma_value, 4)
+        distance = round(price - realtime_ma, 4)
         self.latest_data[watch_id] = {
             "symbol": watch.symbol,
             "current_price": price,
-            "ma_value": cache.ma_value,
-            "prev_ma": cache.prev_ma,
+            "ma_value": round(realtime_ma, 4),
+            "prev_ma": round(prev_ma, 4),
             "ma_period": cache.ma_period,
-            "ma_direction": cache.ma_direction,
+            "ma_direction": ma_direction,
             "n_points": cache.n_points,
             "distance_from_ma": distance,
-            "buy_zone": cache.buy_zone,
-            "sell_zone": cache.sell_zone,
+            "buy_zone": buy_zone,
+            "sell_zone": sell_zone,
             "last_updated": datetime.now().isoformat(),
+            # Confirmation MA info
+            "confirm_ma_enabled": watch.confirm_ma_enabled,
+            "confirm_ma_period": watch.confirm_ma_period,
+            "confirm_ma_value": confirm_ma_value,
+            "confirm_ma_direction": confirm_ma_direction,
+            "confirm_ma_ok": confirm_ma_ok,
         }
 
         cache.last_price = price
 
         # Direction filter: LONG only triggers on BUY, SHORT only on SELL
-        if watch.direction == "LONG" and cache.signal_type != "BUY":
+        if watch.direction == "LONG" and signal_type != "BUY":
             return None
-        if watch.direction == "SHORT" and cache.signal_type != "SELL":
+        if watch.direction == "SHORT" and signal_type != "SELL":
             return None
 
         # Check if price is in trigger zone
-        in_zone = cache.trigger_low <= price <= cache.trigger_high
+        in_zone = trigger_low <= price <= trigger_high
+        
+        # Check confirmation MA condition (if enabled)
+        if not confirm_ma_ok:
+            # Confirmation MA direction doesn't match — don't trigger
+            return None
 
         if in_zone and not cache.signal_fired:
             # 🔔 Signal fires!
@@ -301,18 +461,18 @@ class StrategyEngine:
                 timestamp=datetime.now().isoformat(),
                 watch_id=watch_id,
                 symbol=watch.symbol,
-                signal_type=cache.signal_type,
+                signal_type=signal_type,
                 price=price,
-                ma_value=cache.ma_value,
+                ma_value=round(realtime_ma, 4),
                 ma_period=cache.ma_period,
                 n_points=cache.n_points,
                 distance=abs(distance),
             )
             self.signals.append(signal)
             logger.info("🔔 %s signal: %s @ %.2f (MA%.0f=%.2f, zone=[%.2f,%.2f])",
-                        cache.signal_type, watch.symbol, price,
-                        cache.ma_period, cache.ma_value,
-                        cache.trigger_low, cache.trigger_high)
+                        signal_type, watch.symbol, price,
+                        cache.ma_period, realtime_ma,
+                        trigger_low, trigger_high)
             return signal
         elif not in_zone:
             # Price left zone — reset so signal can fire again on re-entry

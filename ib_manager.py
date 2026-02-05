@@ -292,8 +292,20 @@ class IBManager:
         contract = qualified[0]
 
         # For futures, use the exchange; for stocks, use ""
+        # Special handling for COMEX metals (GC, MGC, SI, HG) - try NYMEX first
         fut_fop_exchange = exchange if sec_type == "FUT" else ""
         chains = ib.reqSecDefOptParams(contract.symbol, fut_fop_exchange, contract.secType, contract.conId)
+        
+        # If no chains found for COMEX, try NYMEX (metals options are often listed there)
+        if not chains and exchange == "COMEX":
+            logger.info("No chains at COMEX for %s, trying NYMEX...", symbol)
+            chains = ib.reqSecDefOptParams(contract.symbol, "NYMEX", contract.secType, contract.conId)
+        
+        # Last resort: try empty exchange (let IB find it)
+        if not chains:
+            logger.info("Trying empty exchange for %s options...", symbol)
+            chains = ib.reqSecDefOptParams(contract.symbol, "", contract.secType, contract.conId)
+        
         if not chains:
             logger.warning("No option chains found for %s (exchange=%s)", symbol, fut_fop_exchange)
             return []
