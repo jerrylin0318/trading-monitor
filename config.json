@@ -73,30 +73,6 @@
       "direction": "LONG"
     },
     {
-      "id": "6a6f4de6",
-      "symbol": "TSLA",
-      "sec_type": "STK",
-      "exchange": "SMART",
-      "currency": "USD",
-      "ma_period": 21,
-      "n_points": 5.0,
-      "enabled": true,
-      "contract_month": "",
-      "direction": "LONG"
-    },
-    {
-      "id": "8bbff739",
-      "symbol": "MSFT",
-      "sec_type": "STK",
-      "exchange": "SMART",
-      "currency": "USD",
-      "ma_period": 21,
-      "n_points": 5.0,
-      "enabled": true,
-      "contract_month": "",
-      "direction": "LONG"
-    },
-    {
       "id": "aa8503cf",
       "symbol": "MBT",
       "sec_type": "FUT",
@@ -131,19 +107,7 @@
       "enabled": true,
       "contract_month": "202603",
       "direction": "LONG"
-    },
-    {
-      "id": "50df411f",
-      "symbol": "MGC",
-      "sec_type": "FUT",
-      "exchange": "COMEX",
-      "currency": "USD",
-      "ma_period": 21,
-      "n_points": 5.0,
-      "enabled": true,
-      "contract_month": "202604",
-      "direction": "LONG"
     }
   ],
-  "saved_at": "2026-02-04T19:08:41.449721"
+  "saved_at": "2026-02-04T19:30:05.416970"
 }

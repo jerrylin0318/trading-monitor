@@ -341,7 +341,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .opt-inline-header {
     display: grid;
-    grid-template-columns: 24px 65px 1fr 65px 50px 36px 50px;
+    grid-template-columns: 24px 65px 35px 1fr 65px 50px 36px 50px;
     gap: 3px;
     font-size: 10px;
     color: var(--text-muted);
@@ -352,7 +352,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .opt-inline-row {
     display: grid;
-    grid-template-columns: 24px 65px 1fr 65px 50px 36px 50px;
+    grid-template-columns: 24px 65px 35px 1fr 65px 50px 36px 50px;
     gap: 3px;
     align-items: center;
     padding: 4px 0;
@@ -361,6 +361,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .opt-inline-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
 .opt-inline-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--blue); }
 .opt-inline-strike { font-weight: 700; color: var(--yellow); font-size: 13px; }
+.opt-inline-mult { font-size: 10px; color: var(--text-muted); }
 .opt-inline-name { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opt-inline-ba { color: var(--text-muted); font-size: 11px; text-align: right; }
 .opt-inline-last { font-weight: 600; text-align: right; }
@@ -368,11 +369,12 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
 
 @media (max-width: 600px) {
-    .opt-inline-header { grid-template-columns: 22px 55px 1fr 50px 40px 40px; font-size: 9px; }
-    .opt-inline-row { grid-template-columns: 22px 55px 1fr 50px 40px 40px; }
+    .opt-inline-header { grid-template-columns: 22px 50px 30px 1fr 45px 35px 40px; font-size: 9px; }
+    .opt-inline-row { grid-template-columns: 22px 50px 30px 1fr 45px 35px 40px; }
     .opt-inline-ba { display: none; }
-    .opt-inline-header span:nth-child(4) { display: none; }
+    .opt-inline-header span:nth-child(5) { display: none; } /* hide bid/ask header on mobile */
     .opt-inline-vol { font-size: 9px; }
+    .opt-inline-mult { font-size: 9px; }
 }
 
 /* Exit strategy config */

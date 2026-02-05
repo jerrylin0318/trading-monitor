@@ -517,14 +517,16 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
             const optSel = sel[optKey] || {};
             const checked = optSel.checked ? 'checked' : '';
             const amt = optSel.amount || 1000;
+            const mult = o.multiplier || 100;
             return `
             <div class="opt-inline-row">
                 <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
                     data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
                     data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
-                    data-multiplier="${o.multiplier || 100}" data-key="${optKey}" ${checked}
+                    data-multiplier="${mult}" data-key="${optKey}" ${checked}
                     onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
                 <span class="opt-inline-strike">${o.strike}</span>
+                <span class="opt-inline-mult">×${mult}</span>
                 <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
                 <span class="opt-inline-ba">${o.bid?.toFixed(2) ?? '--'}/${o.ask?.toFixed(2) ?? '--'}</span>
                 <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
@@ -535,7 +537,7 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         return `<div class="opt-inline-group">
             <div class="opt-inline-label" style="color:${color}">${label}</div>
             <div class="opt-inline-header">
-                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>金額$</span>
+                <span></span><span>履約價</span><span>乘數</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>金額$</span>
             </div>
             ${rows}
         </div>`;

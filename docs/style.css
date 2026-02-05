@@ -236,6 +236,30 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .strategy-tag.BUY { background: rgba(63,185,80,0.15); color: var(--green); }
 .strategy-tag.SELL { background: rgba(248,81,73,0.15); color: var(--red); }
 .strategy-tag.BOTH { background: rgba(88,166,255,0.15); color: var(--blue); }
+.strategy-badge {
+    font-size: 13px;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+    margin-right: 6px;
+    display: inline-block;
+}
+.strategy-badge.BUY { background: rgba(63,185,80,0.25); color: var(--green); border: 1px solid rgba(63,185,80,0.4); }
+.strategy-badge.SELL { background: rgba(248,81,73,0.25); color: var(--red); border: 1px solid rgba(248,81,73,0.4); }
+.trigger-zone {
+    font-size: 12px;
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+.trigger-zone.ready {
+    color: var(--text-primary);
+    opacity: 1;
+}
+.trigger-zone.active {
+    color: var(--red);
+    opacity: 1;
+    font-weight: 600;
+}
 .watch-actions {
     display: flex;
     gap: 6px;
@@ -317,8 +341,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .opt-inline-header {
     display: grid;
-    grid-template-columns: 24px 70px 1fr 65px 55px 45px;
-    gap: 4px;
+    grid-template-columns: 24px 65px 35px 1fr 65px 50px 36px 50px;
+    gap: 3px;
     font-size: 10px;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -328,8 +352,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .opt-inline-row {
     display: grid;
-    grid-template-columns: 24px 70px 1fr 65px 55px 45px;
-    gap: 4px;
+    grid-template-columns: 24px 65px 35px 1fr 65px 50px 36px 50px;
+    gap: 3px;
     align-items: center;
     padding: 4px 0;
     font-size: 12px;
@@ -337,16 +361,20 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .opt-inline-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
 .opt-inline-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--blue); }
 .opt-inline-strike { font-weight: 700; color: var(--yellow); font-size: 13px; }
+.opt-inline-mult { font-size: 10px; color: var(--text-muted); }
 .opt-inline-name { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opt-inline-ba { color: var(--text-muted); font-size: 11px; text-align: right; }
 .opt-inline-last { font-weight: 600; text-align: right; }
+.opt-inline-vol { font-size: 10px; color: var(--text-muted); text-align: right; }
 .opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
 
 @media (max-width: 600px) {
-    .opt-inline-header { grid-template-columns: 22px 60px 1fr 55px 45px; font-size: 9px; }
-    .opt-inline-row { grid-template-columns: 22px 60px 1fr 55px 45px; }
+    .opt-inline-header { grid-template-columns: 22px 50px 30px 1fr 45px 35px 40px; font-size: 9px; }
+    .opt-inline-row { grid-template-columns: 22px 50px 30px 1fr 45px 35px 40px; }
     .opt-inline-ba { display: none; }
-    .opt-inline-header span:nth-child(4) { display: none; }
+    .opt-inline-header span:nth-child(5) { display: none; } /* hide bid/ask header on mobile */
+    .opt-inline-vol { font-size: 9px; }
+    .opt-inline-mult { font-size: 9px; }
 }
 
 /* Exit strategy config */
