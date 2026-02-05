@@ -153,19 +153,6 @@ function connectWS() {
 
     ws.onopen = () => {
         log('WebSocket 已連線', 'success');
-        // Exit standalone demo mode if we were in it
-        if (standaloneMode) {
-            standaloneMode = false;
-            if (standaloneTicker) {
-                clearInterval(standaloneTicker);
-                standaloneTicker = null;
-            }
-            log('已切換回正式模式', 'success');
-            // Clear demo data
-            state.watchList = [];
-            state.latestData = {};
-            renderWatchList();
-        }
         // Clear old interval if exists
         if (wsPingInterval) clearInterval(wsPingInterval);
         // Ping every 15s to keep connection alive
@@ -1621,24 +1608,8 @@ function initApp() {
         }).catch(e => log('SW 註冊失敗: ' + e.message, 'warning'));
     }
 
-    // Try WebSocket, fall back to standalone demo
-    try {
-        connectWS();
-        // If WS fails to connect in 8s, switch to standalone (longer timeout for PWA)
-        setTimeout(() => {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                // Only switch to demo if not authenticated (PWA might just be slow)
-                if (!authToken) {
-                    log('WebSocket 連線失敗，切換離線 Demo', 'warning');
-                    startStandaloneDemo();
-                } else {
-                    log('WebSocket 連線中...', 'info');
-                }
-            }
-        }, 8000);
-    } catch (e) {
-        startStandaloneDemo();
-    }
+    // Connect WebSocket (will auto-reconnect on failure)
+    connectWS();
 
     // Keyboard shortcut: Enter to add watch
     document.getElementById('w-symbol').addEventListener('keydown', (e) => {
