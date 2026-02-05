@@ -618,25 +618,40 @@ async def refresh_watch_options(watch_id: str):
 
 
 @app.post("/api/options/prices/{watch_id}")
-async def update_option_prices(watch_id: str):
-    """Update prices only for cached options (no re-fetch contracts)."""
+async def update_option_prices(watch_id: str, expiry: Optional[str] = None):
+    """Update prices for cached options. If expiry given, only refresh that expiry's options."""
     if DEMO_MODE:
         return {"ok": True}
     cache = _options_cache.get(watch_id)
     if not cache:
         return {"error": "No cached options"}
-    
-    refreshed_calls = await ib.refresh_option_prices(cache["call_raw"])
-    refreshed_puts = await ib.refresh_option_prices(cache["put_raw"])
-    cache["call"] = _group_options(refreshed_calls)
-    cache["put"] = _group_options(refreshed_puts)
-    
+
+    if expiry:
+        # Refresh only the specified expiry's options (fast — ~5-10 contracts)
+        call_subset = [o for o in cache["call_raw"] if o["expiry"] == expiry]
+        put_subset = [o for o in cache["put_raw"] if o["expiry"] == expiry]
+        if call_subset:
+            await ib.refresh_option_prices(call_subset)
+        if put_subset:
+            await ib.refresh_option_prices(put_subset)
+        # Regroup all (includes freshly updated subset)
+        cache["call"] = _group_options(cache["call_raw"])
+        cache["put"] = _group_options(cache["put_raw"])
+        logger.info("Refreshed prices for %s expiry %s (%d calls, %d puts)",
+                     watch_id, expiry, len(call_subset), len(put_subset))
+    else:
+        # Refresh all expirations
+        await ib.refresh_option_prices(cache["call_raw"])
+        await ib.refresh_option_prices(cache["put_raw"])
+        cache["call"] = _group_options(cache["call_raw"])
+        cache["put"] = _group_options(cache["put_raw"])
+
     data = engine.latest_data.get(watch_id, {})
     data["options_call"] = cache["call"]
     data["options_put"] = cache["put"]
-    
+
     await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
-    return {"ok": True}
+    return {"ok": True, "expiry": expiry}
 
 
 def _demo_options(symbol: str, right: str, ma_price: float, num_strikes: int = 5):

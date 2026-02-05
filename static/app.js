@@ -463,6 +463,15 @@ function toggleExpand(watchId) {
         state.expandedWatch = null;
     } else {
         state.expandedWatch = watchId;
+        // Refresh current expiry prices when expanding
+        if (!standaloneMode) {
+            const data = state.latestData[watchId];
+            const expiries = Object.keys(data?.options_call || {});
+            const expiry = data?.selected_expiry || expiries[0];
+            if (expiry) {
+                api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST').catch(() => {});
+            }
+        }
     }
     renderWatchList();
 }
@@ -579,10 +588,19 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     </div>`;
 }
 
-function selectExpiry(watchId, expiry) {
+async function selectExpiry(watchId, expiry) {
     if (state.latestData[watchId]) {
         state.latestData[watchId].selected_expiry = expiry;
         renderWatchList();
+
+        // Fetch latest prices for this expiry (snapshot)
+        if (!standaloneMode) {
+            try {
+                await api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST');
+            } catch (e) {
+                // Silent fail — cached data still shows
+            }
+        }
     }
 }
 
