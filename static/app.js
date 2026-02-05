@@ -622,6 +622,9 @@ function updatePriceDisplays(watchId, data) {
     const idx = state.watchList.findIndex(w => w.id === watchId);
     if (idx < 0) return;
     
+    const w = state.watchList[idx];
+    const strategyType = w.strategy_type || 'MA';
+    
     const items = document.querySelectorAll('.watch-item');
     if (idx >= items.length) return;
     
@@ -629,10 +632,21 @@ function updatePriceDisplays(watchId, data) {
     const details = item.querySelector('.watch-details');
     if (details && data.current_price) {
         const spans = details.querySelectorAll('span');
-        if (spans.length >= 5) {
-            spans[2].textContent = `價格: ${data.current_price.toFixed(2)}`;
-            spans[3].textContent = `MA: ${(data.ma_value || 0).toFixed(2)}`;
-            spans[4].textContent = `距離: ${(data.distance_from_ma || 0).toFixed(2)}`;
+        // spans: [strategyLabel, MA period, σ/N, 價格, 上/MA, 下/距離] or with confirm MA
+        // Find the price span and update from there
+        for (let i = 0; i < spans.length; i++) {
+            const text = spans[i].textContent;
+            if (text.startsWith('價格:')) {
+                spans[i].textContent = `價格: ${data.current_price.toFixed(2)}`;
+                if (strategyType === 'BB') {
+                    if (spans[i+1]) spans[i+1].textContent = `上: ${data.bb_upper ? data.bb_upper.toFixed(2) : '--'}`;
+                    if (spans[i+2]) spans[i+2].textContent = `下: ${data.bb_lower ? data.bb_lower.toFixed(2) : '--'}`;
+                } else {
+                    if (spans[i+1]) spans[i+1].textContent = `MA: ${(data.ma_value || 0).toFixed(2)}`;
+                    if (spans[i+2]) spans[i+2].textContent = `距離: ${(data.distance_from_ma || 0).toFixed(2)}`;
+                }
+                break;
+            }
         }
     }
 }
