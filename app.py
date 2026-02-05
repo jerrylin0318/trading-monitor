@@ -489,7 +489,7 @@ class WatchItemCreate(BaseModel):
     ma_period: int = 21
     n_points: float = 5.0
     enabled: bool = True
-    contract_month: str = ""
+    contract_month: Optional[str] = ""
     direction: str = "LONG"
 
 
@@ -568,7 +568,7 @@ async def add_watch(item: WatchItemCreate):
         ma_period=item.ma_period,
         n_points=item.n_points,
         enabled=item.enabled,
-        contract_month=item.contract_month,
+        contract_month=item.contract_month or "",
         direction=item.direction,
     )
     engine.add_watch(watch)
@@ -656,6 +656,24 @@ async def get_thresholds():
         t = engine.get_threshold(watch_id)
         if t:
             result[watch_id] = t
+    return result
+
+
+@app.get("/api/debug/options-cache")
+async def debug_options_cache():
+    """Debug endpoint: show cached options with multiplier info."""
+    result = {}
+    for watch_id, cache in _options_cache.items():
+        watch = engine.watch_list.get(watch_id)
+        sym = watch.symbol if watch else "?"
+        items = []
+        for o in (cache.get("call_raw") or []) + (cache.get("put_raw") or []):
+            items.append({
+                "expiry": o.get("expiry"), "strike": o.get("strike"),
+                "right": o.get("right"), "multiplier": o.get("multiplier"),
+                "tradingClass": o.get("tradingClass", ""),
+            })
+        result[f"{sym}_{watch_id}"] = items
     return result
 
 

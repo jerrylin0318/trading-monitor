@@ -10,8 +10,7 @@
       "n_points": 5.0,
       "enabled": true,
       "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "BOTH"
+      "direction": "LONG"
     },
     {
       "id": "b99eeae4",
@@ -23,8 +22,7 @@
       "n_points": 5.0,
       "enabled": true,
       "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "BUY"
+      "direction": "LONG"
     },
     {
       "id": "93010c3c",
@@ -36,8 +34,7 @@
       "n_points": 5.0,
       "enabled": true,
       "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "BUY"
+      "direction": "LONG"
     },
     {
       "id": "1cf61505",
@@ -49,9 +46,20 @@
       "n_points": 5.0,
       "enabled": true,
       "contract_month": "202603",
-      "direction": "LONG",
-      "strategy": "SELL"
+      "direction": "LONG"
+    },
+    {
+      "id": "d93d094b",
+      "symbol": "ES",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "SHORT"
     }
   ],
-  "saved_at": "2026-02-04T17:26:00.552157"
+  "saved_at": "2026-02-04T18:18:25.265737"
 }
