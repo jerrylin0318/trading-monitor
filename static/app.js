@@ -153,9 +153,22 @@ function connectWS() {
 
     ws.onopen = () => {
         log('WebSocket 已連線', 'success');
+        // Exit standalone demo mode if we were in it
+        if (standaloneMode) {
+            standaloneMode = false;
+            if (standaloneTicker) {
+                clearInterval(standaloneTicker);
+                standaloneTicker = null;
+            }
+            log('已切換回正式模式', 'success');
+            // Clear demo data
+            state.watchList = [];
+            state.latestData = {};
+            renderWatchList();
+        }
         // Clear old interval if exists
         if (wsPingInterval) clearInterval(wsPingInterval);
-        // Ping every 15s to keep ngrok connection alive
+        // Ping every 15s to keep connection alive
         wsPingInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ping' }));
