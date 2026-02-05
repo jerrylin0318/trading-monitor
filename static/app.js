@@ -70,10 +70,16 @@ function handleMessage(msg) {
             renderPositions();
             updateStatusUI();
             break;
-        case 'data_update':
-            state.latestData[msg.watch_id] = msg.data;
+        case 'data_update': {
+            // Merge incoming data, preserve client-side state (selected_expiry, etc.)
+            const prev = state.latestData[msg.watch_id] || {};
+            state.latestData[msg.watch_id] = { ...prev, ...msg.data };
+            if (prev.selected_expiry && !msg.data.selected_expiry) {
+                state.latestData[msg.watch_id].selected_expiry = prev.selected_expiry;
+            }
             renderWatchList();
             break;
+        }
         case 'watch_update':
             state.watchList = msg.watch_list || [];
             renderWatchList();
