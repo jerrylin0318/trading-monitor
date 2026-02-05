@@ -1,5 +1,5 @@
-const CACHE_NAME = 'trademon-v29';
-const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json'];
+const CACHE_NAME = 'trademon-v30';
+const ASSETS = ['/', '/static/index.html', '/static/style.css', '/static/app.js', '/static/manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
