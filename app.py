@@ -737,6 +737,11 @@ async def place_order(req: OrderRequest):
     if not watch:
         return {"error": "Watch not found"}
 
+    # Look up multiplier from options cache
+    opt_cache = _options_cache.get(req.watch_id, {})
+    cached_opts = (opt_cache.get("call_raw") or []) + (opt_cache.get("put_raw") or [])
+    multiplier_map = {o.get("conId"): o.get("multiplier", 100) for o in cached_opts if o.get("conId")}
+
     results = []
     for item in req.items:
         con_id = item.get("conId")
@@ -747,8 +752,9 @@ async def place_order(req: OrderRequest):
             results.append({"conId": con_id, "error": "Invalid conId or ask price"})
             continue
 
-        # Calculate quantity: amount / ask / 100 (options multiplier)
-        qty = max(1, int(amount / ask / 100))
+        # Calculate quantity: amount / (ask × multiplier)
+        multiplier = multiplier_map.get(con_id, 100)
+        qty = max(1, int(amount / (ask * multiplier)))
 
         # Determine action: BUY for calls/puts entry
         action = "BUY"

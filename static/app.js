@@ -517,7 +517,7 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
                 <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
                     data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
                     data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
-                    data-key="${optKey}" ${checked}
+                    data-multiplier="${o.multiplier || 100}" data-key="${optKey}" ${checked}
                     onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
                 <span class="opt-inline-strike">${o.strike}</span>
                 <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
@@ -672,9 +672,11 @@ async function placeOrder(watchId) {
         if (key === 'stk') return; // Skip underlying for now (options only)
         if (!conId || !ask || ask <= 0) return;
 
-        const qty = Math.max(1, Math.floor(amount / ask / 100));
+        // Use actual multiplier from contract (FOP: MNQ=2, MES=5; STK options=100)
+        const multiplier = parseFloat(chk.dataset.multiplier) || 100;
+        const qty = Math.max(1, Math.floor(amount / (ask * multiplier)));
         items.push({ conId, ask, amount, right, strike: parseFloat(strike), expiry });
-        displayItems.push({ strike, right, expiry: expiry?.slice(4), ask, qty, amount });
+        displayItems.push({ strike, right, expiry: expiry?.slice(4), ask, qty, amount, multiplier });
     });
 
     if (items.length === 0) {
@@ -709,7 +711,8 @@ async function placeOrder(watchId) {
 
     let confirmMsg = `確認下單 ${w.symbol}？\n\n`;
     displayItems.forEach(d => {
-        confirmMsg += `${d.right} ${d.strike} (${d.expiry}) | Ask $${d.ask} × ${d.qty}口 = $${(d.ask * d.qty * 100).toFixed(0)}\n`;
+        const cost = d.ask * d.qty * d.multiplier;
+        confirmMsg += `${d.right} ${d.strike} (${d.expiry}) | Ask $${d.ask} × ${d.qty}口 × ${d.multiplier} = $${cost.toFixed(0)}\n`;
     });
     if (exitDesc.length) {
         confirmMsg += `\n平倉策略: ${exitDesc.join(' / ')}`;
