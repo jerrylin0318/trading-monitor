@@ -276,19 +276,19 @@ class StrategyEngine:
                 signal_type = "SELL"
                 sell_zone = f"{round(current_ma - watch.n_points, 2)} ~ {round(current_ma, 2)}"
         else:
-            # BB Strategy: price touches upper/lower band
-            # LONG: trigger when price <= lower band
-            # SHORT: trigger when price >= upper band
+            # BB Strategy: price approaches upper/lower band within N points
+            # LONG: trigger when price <= lower band + N points (approaching from above)
+            # SHORT: trigger when price >= upper band - N points (approaching from below)
             if watch.direction == "LONG" and bb_lower:
-                trigger_low = bb_lower - watch.n_points  # Some buffer below
-                trigger_high = bb_lower
+                trigger_low = 0  # No lower limit
+                trigger_high = bb_lower + watch.n_points
                 signal_type = "BUY"
-                buy_zone = f"≤ {round(bb_lower, 2)}"
+                buy_zone = f"≤ {round(bb_lower + watch.n_points, 2)}"
             elif watch.direction == "SHORT" and bb_upper:
-                trigger_low = bb_upper
-                trigger_high = bb_upper + watch.n_points  # Some buffer above
+                trigger_low = bb_upper - watch.n_points
+                trigger_high = float('inf')  # No upper limit
                 signal_type = "SELL"
-                sell_zone = f"≥ {round(bb_upper, 2)}"
+                sell_zone = f"≥ {round(bb_upper - watch.n_points, 2)}"
 
         ma_direction = "RISING" if ma_rising else ("FALLING" if ma_falling else "FLAT")
 
@@ -470,17 +470,17 @@ class StrategyEngine:
                 signal_type = "SELL"
                 sell_zone = f"{round(realtime_ma - watch.n_points, 2)} ~ {round(realtime_ma, 2)}"
         else:
-            # BB Strategy: price touches upper/lower band
+            # BB Strategy: price approaches upper/lower band within N points
             if watch.direction == "LONG" and bb_lower:
-                trigger_low = bb_lower - watch.n_points
-                trigger_high = bb_lower
+                trigger_low = 0
+                trigger_high = bb_lower + watch.n_points
                 signal_type = "BUY"
-                buy_zone = f"≤ {round(bb_lower, 2)}"
+                buy_zone = f"≤ {round(bb_lower + watch.n_points, 2)}"
             elif watch.direction == "SHORT" and bb_upper:
-                trigger_low = bb_upper
-                trigger_high = bb_upper + watch.n_points
+                trigger_low = bb_upper - watch.n_points
+                trigger_high = float('inf')
                 signal_type = "SELL"
-                sell_zone = f"≥ {round(bb_upper, 2)}"
+                sell_zone = f"≥ {round(bb_upper - watch.n_points, 2)}"
         
         # Calculate real-time confirmation MA if enabled
         confirm_ma_value = cache.confirm_ma_value

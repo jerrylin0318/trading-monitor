@@ -533,16 +533,19 @@ function renderWatchList() {
         let zoneReady = false;
         
         if (strategyType === 'BB') {
-            // Bollinger Bands: trigger on upper/lower band touch
+            // Bollinger Bands: trigger when approaching band within N points
             const bbUpper = data.bb_upper;
             const bbLower = data.bb_lower;
+            const nPts = w.n_points || 0;
             if (w.direction === 'LONG' && bbLower) {
-                zone = `≤ ${bbLower.toFixed(2)} (下軌)`;
-                zoneActive = data.current_price <= bbLower;
+                const triggerPrice = bbLower + nPts;
+                zone = `≤ ${triggerPrice.toFixed(2)} (下軌+${nPts})`;
+                zoneActive = data.current_price <= triggerPrice;
                 zoneReady = true;  // BB always ready (no direction requirement)
             } else if (w.direction === 'SHORT' && bbUpper) {
-                zone = `≥ ${bbUpper.toFixed(2)} (上軌)`;
-                zoneActive = data.current_price >= bbUpper;
+                const triggerPrice = bbUpper - nPts;
+                zone = `≥ ${triggerPrice.toFixed(2)} (上軌-${nPts})`;
+                zoneActive = data.current_price >= triggerPrice;
                 zoneReady = true;
             }
         } else {
@@ -660,13 +663,16 @@ function updatePriceDisplays(watchId, data) {
         if (strategyType === 'BB') {
             const bbUpper = data.bb_upper;
             const bbLower = data.bb_lower;
+            const nPts = w.n_points || 0;
             if (w.direction === 'LONG' && bbLower) {
-                zone = `≤ ${bbLower.toFixed(2)} (下軌)`;
-                zoneActive = data.current_price <= bbLower;
+                const triggerPrice = bbLower + nPts;
+                zone = `≤ ${triggerPrice.toFixed(2)} (下軌+${nPts})`;
+                zoneActive = data.current_price <= triggerPrice;
                 zoneReady = true;
             } else if (w.direction === 'SHORT' && bbUpper) {
-                zone = `≥ ${bbUpper.toFixed(2)} (上軌)`;
-                zoneActive = data.current_price >= bbUpper;
+                const triggerPrice = bbUpper - nPts;
+                zone = `≥ ${triggerPrice.toFixed(2)} (上軌-${nPts})`;
+                zoneActive = data.current_price >= triggerPrice;
                 zoneReady = true;
             }
         } else {
