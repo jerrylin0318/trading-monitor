@@ -159,7 +159,39 @@
       "confirm_ma_period": 55,
       "strategy_type": "MA",
       "bb_std_dev": 2.0
+    },
+    {
+      "id": "899c244d",
+      "symbol": "ES",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "SHORT",
+      "confirm_ma_enabled": true,
+      "confirm_ma_period": 34,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
+    },
+    {
+      "id": "79c66b00",
+      "symbol": "NQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "SHORT",
+      "confirm_ma_enabled": true,
+      "confirm_ma_period": 34,
+      "strategy_type": "BB",
+      "bb_std_dev": 2.0
     }
   ],
-  "saved_at": "2026-02-05T00:52:03.029071"
+  "saved_at": "2026-02-05T01:01:41.690469"
 }

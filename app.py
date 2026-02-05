@@ -803,6 +803,9 @@ async def get_candles(watch_id: str):
     trigger_low = None
     trigger_high = None
     
+    bb_upper_data = []
+    bb_lower_data = []
+    
     if candles:
         closes = [c["close"] for c in candles]
         period = watch.ma_period
@@ -810,6 +813,15 @@ async def get_candles(watch_id: str):
             if i >= period - 1:
                 ma_val = sum(closes[i - period + 1:i + 1]) / period
                 ma_data.append({"time": c["time"], "value": round(ma_val, 4)})
+                
+                # Calculate BB bands if BB strategy
+                if watch.strategy_type == "BB" and i >= period:
+                    window = closes[i - period + 1:i + 1]
+                    std_val = (sum((x - ma_val) ** 2 for x in window) / period) ** 0.5
+                    bb_upper = ma_val + watch.bb_std_dev * std_val
+                    bb_lower = ma_val - watch.bb_std_dev * std_val
+                    bb_upper_data.append({"time": c["time"], "value": round(bb_upper, 4)})
+                    bb_lower_data.append({"time": c["time"], "value": round(bb_lower, 4)})
         
         # Calculate confirm MA if enabled
         if watch.confirm_ma_enabled and watch.confirm_ma_period > 0:
@@ -819,8 +831,17 @@ async def get_candles(watch_id: str):
                     ma_val = sum(closes[i - confirm_period + 1:i + 1]) / confirm_period
                     confirm_ma_data.append({"time": c["time"], "value": round(ma_val, 4)})
         
-        # Calculate trigger zone from latest MA
-        if len(ma_data) >= 2:
+        # Calculate trigger zone
+        if watch.strategy_type == "BB" and bb_upper_data and bb_lower_data:
+            # BB strategy: trigger at upper/lower band
+            if watch.direction == "LONG":
+                trigger_low = bb_lower_data[-1]["value"] - watch.n_points
+                trigger_high = bb_lower_data[-1]["value"]
+            else:
+                trigger_low = bb_upper_data[-1]["value"]
+                trigger_high = bb_upper_data[-1]["value"] + watch.n_points
+        elif len(ma_data) >= 2:
+            # MA strategy: trigger based on MA direction
             current_ma = ma_data[-1]["value"]
             prev_ma = ma_data[-2]["value"]
             ma_rising = current_ma > prev_ma
@@ -838,6 +859,10 @@ async def get_candles(watch_id: str):
         "candles": candles,
         "ma": ma_data,
         "ma_period": watch.ma_period,
+        "bb_upper": bb_upper_data if watch.strategy_type == "BB" else None,
+        "bb_lower": bb_lower_data if watch.strategy_type == "BB" else None,
+        "bb_std_dev": watch.bb_std_dev if watch.strategy_type == "BB" else None,
+        "strategy_type": watch.strategy_type,
         "confirm_ma": confirm_ma_data if watch.confirm_ma_enabled else None,
         "confirm_ma_period": watch.confirm_ma_period if watch.confirm_ma_enabled else None,
         "n_points": watch.n_points,
@@ -878,7 +903,7 @@ async def get_options(symbol: str, right: str = "C", ma_price: float = 0, sec_ty
 
 @app.post("/api/options/refresh/{watch_id}")
 async def refresh_watch_options(watch_id: str):
-    """Re-cache options for a watch item based on current MA, then refresh prices."""
+    """Re-cache options for a watch item based on current MA/BB, then refresh prices."""
     if DEMO_MODE:
         return {"ok": True}
     watch = engine.watch_list.get(watch_id)
@@ -886,9 +911,19 @@ async def refresh_watch_options(watch_id: str):
         return {"error": "Watch not found"}
     
     data = engine.latest_data.get(watch_id, {})
-    ma_price = data.get("ma_value", 0)
+    
+    # For BB strategy, use trigger line (bb_lower for LONG, bb_upper for SHORT)
+    # For MA strategy, use ma_value
+    if watch.strategy_type == "BB":
+        if watch.direction == "LONG":
+            ma_price = data.get("bb_lower", 0)
+        else:
+            ma_price = data.get("bb_upper", 0)
+    else:
+        ma_price = data.get("ma_value", 0)
+    
     if ma_price <= 0:
-        return {"error": "No MA data yet"}
+        return {"error": "No MA/BB data yet"}
     
     # Re-fetch contracts based on current MA
     await cache_options_for_watch(watch_id, watch, ma_price)

@@ -835,16 +835,37 @@ async function renderChart(watchId) {
         }
     }
     
-    // MA line
+    // MA line (middle line for BB)
     let maSeries = null;
     if (chartData.ma?.length) {
         maSeries = chart.addLineSeries({
             color: '#f0883e',
             lineWidth: 2,
-            title: `MA${chartData.ma_period}`,
+            title: chartData.strategy_type === 'BB' ? `中軌MA${chartData.ma_period}` : `MA${chartData.ma_period}`,
         });
         maSeries.setData(chartData.ma);
         chartSeries[watchId].ma = maSeries;
+    }
+    
+    // BB upper/lower bands
+    if (chartData.bb_upper?.length && chartData.bb_lower?.length) {
+        const bbUpperSeries = chart.addLineSeries({
+            color: '#8b5cf6',  // Purple for upper band
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            title: `上軌 (${chartData.bb_std_dev}σ)`,
+        });
+        bbUpperSeries.setData(chartData.bb_upper);
+        chartSeries[watchId].bbUpper = bbUpperSeries;
+        
+        const bbLowerSeries = chart.addLineSeries({
+            color: '#8b5cf6',  // Purple for lower band
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            title: `下軌 (${chartData.bb_std_dev}σ)`,
+        });
+        bbLowerSeries.setData(chartData.bb_lower);
+        chartSeries[watchId].bbLower = bbLowerSeries;
     }
     
     // Confirm MA line (if enabled)
