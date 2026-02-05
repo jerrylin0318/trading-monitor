@@ -110,6 +110,9 @@ async def broadcast(msg: Dict[str, Any]):
 # --- Options cache ---
 _options_cache: Dict[str, Dict] = {}  # watch_id -> {"call": [...], "put": [...], "ma_price": float}
 
+# --- Active trades ---
+_active_trades: Dict[str, Dict] = {}  # trade_id -> trade dict
+
 
 async def _init_new_watch(watch):
     """Initialize a newly added watch item during live monitoring.
@@ -329,6 +332,68 @@ async def monitor_loop():
                         "underlying": {"symbol": watch.symbol, "price": price, "sec_type": watch.sec_type},
                     })
 
+            # ── Exit strategy monitoring ──
+            for trade_id, trade in list(_active_trades.items()):
+                if trade["status"] not in ("filled", "exiting"):
+                    continue
+
+                exit_cfg = trade.get("exit", {})
+                watch_id = trade["watch_id"]
+
+                # Time-based exit
+                time_exit = exit_cfg.get("time", {})
+                if time_exit.get("enabled"):
+                    exit_time_str = time_exit.get("value", "")  # "HH:MM"
+                    if exit_time_str:
+                        now_time = datetime.now().strftime("%H:%M")
+                        if now_time >= exit_time_str and trade["status"] != "exiting":
+                            trade["status"] = "exiting"
+                            logger.info("⏰ Time exit triggered for trade %s at %s", trade_id, now_time)
+                            for order_info in trade["orders"]:
+                                if order_info.get("conId") and order_info.get("qty_requested"):
+                                    try:
+                                        close_result = await ib.place_market_order(order_info["conId"], "SELL", order_info["qty_requested"])
+                                        order_info["exit_order"] = close_result
+                                    except Exception as e:
+                                        logger.error("Time exit order failed: %s", e)
+                            trade["status"] = "closed"
+                            await broadcast({"type": "trade_update", "trade": trade})
+
+                # MA-based exit
+                ma_exit = exit_cfg.get("ma", {})
+                if ma_exit.get("enabled") and trade["status"] != "exiting":
+                    threshold = engine._thresholds.get(watch_id)
+                    if threshold and threshold.last_price > 0:
+                        current_price = threshold.last_price
+                        ma_val = threshold.ma_value
+                        cond = ma_exit.get("cond", "above")  # "above" or "below"
+                        offset_dir = ma_exit.get("dir", "+")
+                        offset_pts = float(ma_exit.get("pts", 5))
+
+                        if offset_dir == "+":
+                            target = ma_val + offset_pts
+                        else:
+                            target = ma_val - offset_pts
+
+                        triggered = False
+                        if cond == "above" and current_price > target:
+                            triggered = True
+                        elif cond == "below" and current_price < target:
+                            triggered = True
+
+                        if triggered:
+                            trade["status"] = "exiting"
+                            logger.info("📊 MA exit triggered for trade %s: price=%.2f target=%.2f", trade_id, current_price, target)
+                            for order_info in trade["orders"]:
+                                if order_info.get("conId") and order_info.get("qty_requested"):
+                                    try:
+                                        close_result = await ib.place_market_order(order_info["conId"], "SELL", order_info["qty_requested"])
+                                        order_info["exit_order"] = close_result
+                                    except Exception as e:
+                                        logger.error("MA exit order failed: %s", e)
+                            trade["status"] = "closed"
+                            await broadcast({"type": "trade_update", "trade": trade})
+
             # ── Hourly recalculation ──
             now = time.time()
             if now - last_calc_time >= 3600:
@@ -393,6 +458,12 @@ app = FastAPI(title="Trading Monitor", lifespan=lifespan)
 
 
 # --- Pydantic models ---
+class OrderRequest(BaseModel):
+    watch_id: str
+    items: List[Dict[str, Any]]  # [{conId, right, strike, expiry, amount, ask}]
+    exit: Dict[str, Any] = {}     # {limit: {enabled, dir, pts}, time: {enabled, value}, ma: {enabled, cond, dir, pts}}
+
+
 class WatchItemCreate(BaseModel):
     symbol: str
     sec_type: str = "STK"
@@ -652,6 +723,115 @@ async def update_option_prices(watch_id: str, expiry: Optional[str] = None):
 
     await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
     return {"ok": True, "expiry": expiry}
+
+
+# --- Order / Trade endpoints ---
+
+@app.post("/api/order")
+async def place_order(req: OrderRequest):
+    """Place market orders for selected options + set up exit strategies."""
+    if DEMO_MODE:
+        return {"ok": True, "demo": True}
+
+    watch = engine.watch_list.get(req.watch_id)
+    if not watch:
+        return {"error": "Watch not found"}
+
+    results = []
+    for item in req.items:
+        con_id = item.get("conId")
+        ask = item.get("ask", 0)
+        amount = item.get("amount", 1000)
+
+        if not con_id or ask <= 0:
+            results.append({"conId": con_id, "error": "Invalid conId or ask price"})
+            continue
+
+        # Calculate quantity: amount / ask / 100 (options multiplier)
+        qty = max(1, int(amount / ask / 100))
+
+        # Determine action: BUY for calls/puts entry
+        action = "BUY"
+
+        order_result = await ib.place_market_order(con_id, action, qty)
+        order_result["qty_requested"] = qty
+        order_result["conId"] = con_id
+        results.append(order_result)
+
+    # Create active trade record
+    trade_id = str(uuid.uuid4())[:8]
+    trade = {
+        "id": trade_id,
+        "watch_id": req.watch_id,
+        "symbol": watch.symbol,
+        "entry_time": datetime.now().isoformat(),
+        "orders": results,
+        "exit": req.exit,
+        "status": "filled",
+    }
+    _active_trades[trade_id] = trade
+
+    # If limit exit enabled, place limit orders for each filled order
+    exit_cfg = req.exit
+    if exit_cfg.get("limit", {}).get("enabled"):
+        limit_dir = exit_cfg["limit"].get("dir", "+")
+        limit_pts = float(exit_cfg["limit"].get("pts", 0.5))
+        for r in results:
+            if r.get("status") in ("Filled", "PreSubmitted", "Submitted") and r.get("avgFillPrice", 0) > 0:
+                fill_price = r["avgFillPrice"]
+                if limit_dir == "+":
+                    limit_price = round(fill_price + limit_pts, 2)
+                else:
+                    limit_price = round(fill_price - limit_pts, 2)
+                limit_result = await ib.place_limit_order(r["conId"], "SELL", r.get("qty_requested", 1), limit_price)
+                r["exit_limit_order"] = limit_result
+
+    await broadcast({"type": "trade_update", "trade": trade})
+    logger.info("Order placed: trade=%s, %d items for %s", trade_id, len(results), watch.symbol)
+    return {"ok": True, "trade_id": trade_id, "orders": results}
+
+
+@app.get("/api/trades")
+async def get_trades():
+    """Get all active trades."""
+    return list(_active_trades.values())
+
+
+@app.post("/api/trades/{trade_id}/close")
+async def close_trade(trade_id: str):
+    """Manually close a trade by selling all positions."""
+    trade = _active_trades.get(trade_id)
+    if not trade:
+        return {"error": "Trade not found"}
+
+    if trade["status"] in ("closed", "exiting"):
+        return {"error": f"Trade already {trade['status']}"}
+
+    if DEMO_MODE:
+        trade["status"] = "closed"
+        return {"ok": True, "demo": True}
+
+    trade["status"] = "exiting"
+    close_results = []
+    for order_info in trade["orders"]:
+        if order_info.get("conId") and order_info.get("qty_requested"):
+            try:
+                # Cancel any existing limit exit orders first
+                exit_limit = order_info.get("exit_limit_order", {})
+                if exit_limit.get("orderId"):
+                    await ib.cancel_order(exit_limit["orderId"])
+
+                close_result = await ib.place_market_order(order_info["conId"], "SELL", order_info["qty_requested"])
+                order_info["close_order"] = close_result
+                close_results.append(close_result)
+            except Exception as e:
+                logger.error("Close order failed for trade %s: %s", trade_id, e)
+                close_results.append({"error": str(e)})
+
+    trade["status"] = "closed"
+    await broadcast({"type": "trade_update", "trade": trade})
+    logger.info("Trade %s manually closed", trade_id)
+    return {"ok": True, "trade_id": trade_id, "close_results": close_results}
 
 
 def _demo_options(symbol: str, right: str, ma_price: float, num_strikes: int = 5):

@@ -91,12 +91,29 @@ class ThresholdCache:
     sell_zone: Optional[str] = None
 
 
+@dataclass
+class ActiveTrade:
+    """An active trade with entry and exit conditions."""
+    id: str                          # unique trade id
+    watch_id: str
+    symbol: str
+    direction: str                   # BUY or SELL
+    entry_time: str                  # ISO timestamp
+    orders: List[Dict[str, Any]]     # [{conId, symbol, strike, right, expiry, qty, avg_cost, ib_order_id}]
+    exit_strategies: Dict[str, Any]  # {limit: {enabled, pts, dir, order_ids}, time: {enabled, value}, ma: {enabled, cond, dir, pts}}
+    status: str = "pending"          # pending → filled → exiting → closed
+
+    def to_dict(self):
+        return asdict(self)
+
+
 class StrategyEngine:
     def __init__(self):
         self.watch_list: Dict[str, WatchItem] = {}
         self.signals: List[Signal] = []
         self.latest_data: Dict[str, Dict[str, Any]] = {}  # watch_id -> frontend data
         self._thresholds: Dict[str, ThresholdCache] = {}   # watch_id -> cached thresholds
+        self.active_trades: Dict[str, ActiveTrade] = {}
         self._running = False
 
     @property

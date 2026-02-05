@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
-from ib_insync import IB, Contract, Stock, Future, Option, Index, util
+from ib_insync import IB, Contract, Stock, Future, Option, Index, MarketOrder, LimitOrder, util
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -484,6 +484,102 @@ class IBManager:
         except Exception as e:
             logger.error("Failed to refresh option prices: %s", e)
             return options
+
+    # ─── Order Management ───
+
+    def _sync_get_contract_by_conid(self, con_id: int) -> Optional[Contract]:
+        """Look up a contract by conId from options cache or reconstruct."""
+        ib = self._get_ib()
+        contract = Contract(conId=con_id)
+        qualified = ib.qualifyContracts(contract)
+        return qualified[0] if qualified else None
+
+    def _sync_place_market_order(self, contract, action: str, quantity: int) -> Dict[str, Any]:
+        """Place a market order. action = 'BUY' or 'SELL'."""
+        ib = self._get_ib()
+        order = MarketOrder(action, quantity)
+        trade = ib.placeOrder(contract, order)
+        ib.sleep(2)  # Wait for initial fill
+        return {
+            "orderId": trade.order.orderId,
+            "status": trade.orderStatus.status,
+            "filled": float(trade.orderStatus.filled),
+            "avgFillPrice": float(trade.orderStatus.avgFillPrice),
+            "remaining": float(trade.orderStatus.remaining),
+        }
+
+    def _sync_place_limit_order(self, contract, action: str, quantity: int, limit_price: float) -> Dict[str, Any]:
+        """Place a limit order for exit strategy."""
+        ib = self._get_ib()
+        order = LimitOrder(action, quantity, limit_price)
+        trade = ib.placeOrder(contract, order)
+        ib.sleep(1)
+        return {
+            "orderId": trade.order.orderId,
+            "status": trade.orderStatus.status,
+            "filled": float(trade.orderStatus.filled),
+            "avgFillPrice": float(trade.orderStatus.avgFillPrice),
+        }
+
+    def _sync_cancel_order(self, order_id: int):
+        """Cancel an order by orderId."""
+        ib = self._get_ib()
+        for trade in ib.openTrades():
+            if trade.order.orderId == order_id:
+                ib.cancelOrder(trade.order)
+                ib.sleep(0.5)
+                return True
+        return False
+
+    def _sync_get_open_orders(self) -> List[Dict]:
+        """Get all open orders."""
+        ib = self._get_ib()
+        result = []
+        for trade in ib.openTrades():
+            c = trade.contract
+            result.append({
+                "orderId": trade.order.orderId,
+                "symbol": c.symbol,
+                "secType": c.secType,
+                "action": trade.order.action,
+                "qty": float(trade.order.totalQuantity),
+                "orderType": trade.order.orderType,
+                "limitPrice": float(trade.order.lmtPrice) if trade.order.lmtPrice else None,
+                "status": trade.orderStatus.status,
+                "filled": float(trade.orderStatus.filled),
+                "avgFillPrice": float(trade.orderStatus.avgFillPrice),
+            })
+        return result
+
+    async def place_market_order(self, con_id: int, action: str, quantity: int) -> Dict[str, Any]:
+        """Place a market order by conId (async wrapper)."""
+        def _do():
+            contract = self._sync_get_contract_by_conid(con_id)
+            if not contract:
+                return {"error": f"Could not qualify contract conId={con_id}"}
+            return self._sync_place_market_order(contract, action, quantity)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_ib_executor, _do)
+
+    async def place_limit_order(self, con_id: int, action: str, quantity: int, limit_price: float) -> Dict[str, Any]:
+        """Place a limit order by conId (async wrapper)."""
+        def _do():
+            contract = self._sync_get_contract_by_conid(con_id)
+            if not contract:
+                return {"error": f"Could not qualify contract conId={con_id}"}
+            return self._sync_place_limit_order(contract, action, quantity, limit_price)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_ib_executor, _do)
+
+    async def cancel_order(self, order_id: int) -> bool:
+        """Cancel an order by orderId (async wrapper)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_ib_executor, lambda: self._sync_cancel_order(order_id))
+
+    async def get_open_orders(self) -> List[Dict]:
+        """Get all open orders (async wrapper)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_ib_executor, self._sync_get_open_orders)
 
     # ─── Streaming Price Subscriptions ───
 
