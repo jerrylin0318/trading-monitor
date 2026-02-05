@@ -145,18 +145,22 @@ async function logout() {
 }
 
 // ─── WebSocket ───
+let wsPingInterval = null;
+
 function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
         log('WebSocket 已連線', 'success');
-        // Ping every 30s
-        setInterval(() => {
+        // Clear old interval if exists
+        if (wsPingInterval) clearInterval(wsPingInterval);
+        // Ping every 15s to keep ngrok connection alive
+        wsPingInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ping' }));
             }
-        }, 30000);
+        }, 15000);
     };
 
     ws.onmessage = (e) => {
@@ -166,6 +170,8 @@ function connectWS() {
 
     ws.onclose = () => {
         log('WebSocket 斷線，3秒後重連...', 'warning');
+        if (wsPingInterval) clearInterval(wsPingInterval);
+        wsPingInterval = null;
         setTimeout(connectWS, 3000);
     };
 
