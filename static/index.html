@@ -12,6 +12,30 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <!-- Login Overlay -->
+    <div id="login-overlay" class="login-overlay">
+        <div class="login-box">
+            <h2>🔐 登入</h2>
+            <form id="login-form" onsubmit="return handleLogin(event)">
+                <div class="login-field">
+                    <label for="login-username">帳號</label>
+                    <input type="text" id="login-username" autocomplete="username" required>
+                </div>
+                <div class="login-field">
+                    <label for="login-password">密碼</label>
+                    <input type="password" id="login-password" autocomplete="current-password" required>
+                </div>
+                <div class="login-options">
+                    <label><input type="checkbox" id="login-remember-user"> 記住帳號</label>
+                    <label><input type="checkbox" id="login-remember-pass"> 記住密碼</label>
+                    <label><input type="checkbox" id="login-auto"> 自動登入</label>
+                </div>
+                <div id="login-error" class="login-error"></div>
+                <button type="submit" class="btn btn-success login-btn">登入</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Header -->
     <div class="header">
         <h1>📊 Trading Monitor</h1>
@@ -26,6 +50,8 @@
                 <span class="status-dot" id="monitor-dot"></span>
                 <span id="monitor-label" style="font-size:13px;color:var(--text-secondary)">未啟動</span>
                 <button class="btn btn-sm btn-success" id="btn-monitor" onclick="toggleMonitor()">啟動監控</button>
+                <span style="color:var(--border)">|</span>
+                <button class="btn btn-sm" onclick="logout()" title="登出">🚪</button>
             </div>
         </div>
     </div>

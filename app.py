@@ -45,6 +45,44 @@ ws_clients: Set[WebSocket] = set()
 monitor_task: Optional[asyncio.Task] = None
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
+# --- Authentication ---
+import secrets
+import hashlib
+from fastapi import Depends, HTTPException, Header
+
+AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "admin")
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "trading123")  # Change this!
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
+
+# Active sessions: token -> expiry timestamp
+_auth_sessions: Dict[str, float] = {}
+SESSION_EXPIRY_HOURS = 24 * 7  # 1 week
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_token(authorization: Optional[str] = Header(None)) -> bool:
+    """Verify auth token from Authorization header."""
+    if not AUTH_ENABLED:
+        return True
+    if not authorization:
+        raise HTTPException(status_code=401, detail="未授權")
+    token = authorization.replace("Bearer ", "")
+    if token not in _auth_sessions:
+        raise HTTPException(status_code=401, detail="無效的 token")
+    if time.time() > _auth_sessions[token]:
+        del _auth_sessions[token]
+        raise HTTPException(status_code=401, detail="Token 已過期")
+    return True
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 # --- Demo data ---
 DEMO_ACCOUNT = {
     "NetLiquidation": {"value": "125430.50", "currency": "USD"},
@@ -506,8 +544,40 @@ class WatchItemUpdate(BaseModel):
 
 
 # --- API Routes ---
+
+# Auth endpoints (no token required)
+@app.post("/api/auth/login")
+async def login(req: LoginRequest):
+    """Login and get session token."""
+    if req.username != AUTH_USERNAME or req.password != AUTH_PASSWORD:
+        raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    
+    # Generate session token
+    token = secrets.token_urlsafe(32)
+    expiry = time.time() + SESSION_EXPIRY_HOURS * 3600
+    _auth_sessions[token] = expiry
+    
+    logger.info("User '%s' logged in", req.username)
+    return {"ok": True, "token": token, "expires_in": SESSION_EXPIRY_HOURS * 3600}
+
+
+@app.get("/api/auth/check")
+async def check_auth(authorized: bool = Depends(verify_token)):
+    """Check if current token is valid."""
+    return {"ok": True, "auth_enabled": AUTH_ENABLED}
+
+
+@app.post("/api/auth/logout")
+async def logout(authorization: Optional[str] = Header(None)):
+    """Logout and invalidate token."""
+    if authorization:
+        token = authorization.replace("Bearer ", "")
+        _auth_sessions.pop(token, None)
+    return {"ok": True}
+
+
 @app.get("/api/status")
-async def get_status():
+async def get_status(authorized: bool = Depends(verify_token)):
     connected = ib.connected if ib else DEMO_MODE
     return {
         "connected": connected,

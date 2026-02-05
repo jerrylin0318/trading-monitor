@@ -2,6 +2,7 @@
 
 const API = '';
 let ws = null;
+let authToken = null;
 let state = {
     connected: false,
     monitoring: false,
@@ -14,6 +15,127 @@ let state = {
     account: {},
     positions: [],
 };
+
+// ─── Authentication ───
+function getStoredAuth() {
+    return {
+        username: localStorage.getItem('auth_username') || '',
+        password: localStorage.getItem('auth_password') || '',
+        token: localStorage.getItem('auth_token') || '',
+        rememberUser: localStorage.getItem('auth_remember_user') === 'true',
+        rememberPass: localStorage.getItem('auth_remember_pass') === 'true',
+        autoLogin: localStorage.getItem('auth_auto_login') === 'true',
+    };
+}
+
+function saveAuthPrefs(username, password, rememberUser, rememberPass, autoLogin) {
+    localStorage.setItem('auth_remember_user', rememberUser);
+    localStorage.setItem('auth_remember_pass', rememberPass);
+    localStorage.setItem('auth_auto_login', autoLogin);
+    if (rememberUser) {
+        localStorage.setItem('auth_username', username);
+    } else {
+        localStorage.removeItem('auth_username');
+    }
+    if (rememberPass) {
+        localStorage.setItem('auth_password', password);
+    } else {
+        localStorage.removeItem('auth_password');
+    }
+}
+
+function saveToken(token) {
+    authToken = token;
+    localStorage.setItem('auth_token', token);
+}
+
+function clearToken() {
+    authToken = null;
+    localStorage.removeItem('auth_token');
+}
+
+async function checkAuth() {
+    const stored = getStoredAuth();
+    if (stored.token) {
+        authToken = stored.token;
+        try {
+            const res = await fetch('/api/auth/check', {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            if (res.ok) {
+                hideLogin();
+                return true;
+            }
+        } catch (e) {}
+        clearToken();
+    }
+    return false;
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
+    const rememberUser = document.getElementById('login-remember-user').checked;
+    const rememberPass = document.getElementById('login-remember-pass').checked;
+    const autoLogin = document.getElementById('login-auto').checked;
+    const errorEl = document.getElementById('login-error');
+    
+    errorEl.textContent = '';
+    
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (res.ok && data.token) {
+            saveToken(data.token);
+            saveAuthPrefs(username, password, rememberUser, rememberPass, autoLogin);
+            hideLogin();
+            initApp();
+        } else {
+            errorEl.textContent = data.detail || '登入失敗';
+        }
+    } catch (err) {
+        errorEl.textContent = '連線錯誤';
+    }
+    return false;
+}
+
+function showLogin() {
+    const overlay = document.getElementById('login-overlay');
+    overlay.classList.remove('hidden');
+    
+    // Restore saved values
+    const stored = getStoredAuth();
+    document.getElementById('login-username').value = stored.username;
+    document.getElementById('login-password').value = stored.password;
+    document.getElementById('login-remember-user').checked = stored.rememberUser;
+    document.getElementById('login-remember-pass').checked = stored.rememberPass;
+    document.getElementById('login-auto').checked = stored.autoLogin;
+    
+    // Auto login if enabled
+    if (stored.autoLogin && stored.username && stored.password) {
+        handleLogin({ preventDefault: () => {} });
+    }
+}
+
+function hideLogin() {
+    document.getElementById('login-overlay').classList.add('hidden');
+}
+
+async function logout() {
+    try {
+        await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+    } catch (e) {}
+    clearToken();
+    location.reload();
+}
 
 // ─── WebSocket ───
 function connectWS() {
@@ -114,9 +236,16 @@ function handleMessage(msg) {
 // ─── API calls ───
 async function _realApi(path, method = 'GET', body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (authToken) opts.headers['Authorization'] = `Bearer ${authToken}`;
     if (body) opts.body = JSON.stringify(body);
     try {
         const res = await fetch(API + path, opts);
+        if (res.status === 401) {
+            // Token expired or invalid
+            clearToken();
+            showLogin();
+            return null;
+        }
         return await res.json();
     } catch (e) {
         log(`API 錯誤: ${e.message}`, 'error');
@@ -1034,7 +1163,7 @@ async function api(path, method = 'GET', body = null) {
 }
 
 // ─── Init ───
-window.addEventListener('load', () => {
+function initApp() {
     log('Trading Monitor 已載入', 'info');
 
     // Register Service Worker
@@ -1066,6 +1195,16 @@ window.addEventListener('load', () => {
     // Show/hide contract month for futures
     document.getElementById('w-sectype').addEventListener('change', updateContractDropdown);
     updateContractDropdown();
+}
+
+window.addEventListener('load', async () => {
+    // Check if already authenticated
+    const isAuthed = await checkAuth();
+    if (isAuthed) {
+        initApp();
+    } else {
+        showLogin();
+    }
 });
 
 function updateContractDropdown() {
