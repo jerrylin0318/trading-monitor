@@ -689,6 +689,8 @@ async def debug_options_cache():
                 "expiry": o.get("expiry"), "strike": o.get("strike"),
                 "right": o.get("right"), "multiplier": o.get("multiplier"),
                 "tradingClass": o.get("tradingClass", ""),
+                "has_contract": o.get("_contract") is not None,
+                "bid": o.get("bid"), "ask": o.get("ask"), "last": o.get("last"),
             })
         result[f"{sym}_{watch_id}"] = items
     return result
