@@ -559,7 +559,7 @@ function renderWatchList() {
                 }
             }
         }
-        const zoneStatus = !data.ma_value ? '' : zoneActive ? '🟢' : zoneReady ? '🟡' : '⚪';
+        const zoneStatus = (strategyType === 'BB' ? (data.bb_upper || data.bb_lower) : data.ma_value) ? (zoneActive ? '🟢' : zoneReady ? '🟡' : '⚪') : '';
         
         // Confirmation MA status
         const confirmEnabled = w.confirm_ma_enabled || data.confirm_ma_enabled;
@@ -648,6 +648,44 @@ function updatePriceDisplays(watchId, data) {
                 break;
             }
         }
+    }
+    
+    // Update trigger zone display
+    const triggerZone = item.querySelector('.trigger-zone');
+    if (triggerZone && data.current_price) {
+        let zone = '--';
+        let zoneActive = false;
+        let zoneReady = false;
+        
+        if (strategyType === 'BB') {
+            const bbUpper = data.bb_upper;
+            const bbLower = data.bb_lower;
+            if (w.direction === 'LONG' && bbLower) {
+                zone = `≤ ${bbLower.toFixed(2)} (下軌)`;
+                zoneActive = data.current_price <= bbLower;
+                zoneReady = true;
+            } else if (w.direction === 'SHORT' && bbUpper) {
+                zone = `≥ ${bbUpper.toFixed(2)} (上軌)`;
+                zoneActive = data.current_price >= bbUpper;
+                zoneReady = true;
+            }
+        } else {
+            const dir = data.ma_direction || '--';
+            const maRight = (w.direction === 'LONG' && dir === 'RISING') || (w.direction === 'SHORT' && dir === 'FALLING');
+            zoneReady = maRight;
+            if (data.ma_value) {
+                if (w.direction === 'LONG') {
+                    zone = `${data.ma_value.toFixed(2)} ~ ${(data.ma_value + w.n_points).toFixed(2)}`;
+                    zoneActive = maRight && data.current_price >= data.ma_value && data.current_price <= data.ma_value + w.n_points;
+                } else {
+                    zone = `${(data.ma_value - w.n_points).toFixed(2)} ~ ${data.ma_value.toFixed(2)}`;
+                    zoneActive = maRight && data.current_price >= data.ma_value - w.n_points && data.current_price <= data.ma_value;
+                }
+            }
+        }
+        const zoneStatus = (strategyType === 'BB' ? (data.bb_upper || data.bb_lower) : data.ma_value) ? (zoneActive ? '🟢' : zoneReady ? '🟡' : '⚪') : '';
+        triggerZone.textContent = `${zoneStatus} 觸發區: ${zone}`;
+        triggerZone.className = `trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}`;
     }
 }
 
