@@ -59,7 +59,43 @@
       "enabled": true,
       "contract_month": "202603",
       "direction": "SHORT"
+    },
+    {
+      "id": "23b97ae7",
+      "symbol": "AAPL",
+      "sec_type": "STK",
+      "exchange": "SMART",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "",
+      "direction": "LONG"
+    },
+    {
+      "id": "6a6f4de6",
+      "symbol": "TSLA",
+      "sec_type": "STK",
+      "exchange": "SMART",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "",
+      "direction": "LONG"
+    },
+    {
+      "id": "8bbff739",
+      "symbol": "MSFT",
+      "sec_type": "STK",
+      "exchange": "SMART",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "",
+      "direction": "LONG"
     }
   ],
-  "saved_at": "2026-02-04T18:18:25.265737"
+  "saved_at": "2026-02-04T18:31:29.058912"
 }

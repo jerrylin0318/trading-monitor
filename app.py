@@ -584,9 +584,26 @@ async def add_watch(item: WatchItemCreate):
 
 @app.put("/api/watch/{watch_id}")
 async def update_watch(watch_id: str, updates: WatchItemUpdate):
+    old_watch = engine.watch_list.get(watch_id)
+    was_enabled = old_watch.enabled if old_watch else False
+
     update_dict = {k: v for k, v in updates.model_dump().items() if v is not None}
     engine.update_watch(watch_id, update_dict)
     save_config()
+
+    watch = engine.watch_list.get(watch_id)
+    now_enabled = watch.enabled if watch else False
+
+    # Handle pause → resume: re-initialize (subscribe + thresholds + options)
+    if not was_enabled and now_enabled and engine.running and not DEMO_MODE and ib and ib.connected:
+        logger.info("Watch %s (%s) resumed — re-initializing", watch_id, watch.symbol)
+        asyncio.create_task(_init_new_watch(watch))
+
+    # Handle resume → pause: unsubscribe streaming to save resources
+    if was_enabled and not now_enabled and engine.running and not DEMO_MODE and ib:
+        logger.info("Watch %s (%s) paused — unsubscribing", watch_id, watch.symbol)
+        await ib.unsubscribe_price(watch_id)
+
     await broadcast({"type": "watch_update", "watch_list": engine.get_watch_list()})
     return {"ok": True}
 
