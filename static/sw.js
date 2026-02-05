@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trademon-v30';
+const CACHE_NAME = 'trademon-v31';
 const ASSETS = ['/', '/static/index.html', '/static/style.css', '/static/app.js', '/static/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -14,7 +14,13 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Network first, fallback to cache
+  // Skip API and WebSocket requests entirely (don't cache)
+  const url = new URL(e.request.url);
+  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/ws')) {
+    return;  // Let browser handle normally
+  }
+  
+  // Network first, fallback to cache for static assets
   e.respondWith(
     fetch(e.request).catch(() => caches.match(e.request))
   );

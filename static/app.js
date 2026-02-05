@@ -1611,13 +1611,18 @@ function initApp() {
     // Try WebSocket, fall back to standalone demo
     try {
         connectWS();
-        // If WS fails to connect in 3s, switch to standalone
+        // If WS fails to connect in 8s, switch to standalone (longer timeout for PWA)
         setTimeout(() => {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
-                log('WebSocket 連線失敗，切換離線 Demo', 'warning');
-                startStandaloneDemo();
+                // Only switch to demo if not authenticated (PWA might just be slow)
+                if (!authToken) {
+                    log('WebSocket 連線失敗，切換離線 Demo', 'warning');
+                    startStandaloneDemo();
+                } else {
+                    log('WebSocket 連線中...', 'info');
+                }
             }
-        }, 3000);
+        }, 8000);
     } catch (e) {
         startStandaloneDemo();
     }

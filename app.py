@@ -39,7 +39,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 logger = logging.getLogger(__name__)
 
 # --- State ---
-ib = None if DEMO_MODE else IBManager(host="127.0.0.1", port=int(os.environ.get("IB_PORT", "7496")), client_id=10)
+ib = None if DEMO_MODE else IBManager(host="127.0.0.1", port=int(os.environ.get("IB_PORT", "7496")), client_id=11)
 engine = StrategyEngine()
 ws_clients: Set[WebSocket] = set()
 monitor_task: Optional[asyncio.Task] = None
