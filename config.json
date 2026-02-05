@@ -191,7 +191,23 @@
       "confirm_ma_period": 34,
       "strategy_type": "BB",
       "bb_std_dev": 2.0
+    },
+    {
+      "id": "16bb7d96",
+      "symbol": "MES",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "BB",
+      "bb_std_dev": 2.0
     }
   ],
-  "saved_at": "2026-02-05T01:11:16.265142"
+  "saved_at": "2026-02-05T01:14:09.914394"
 }

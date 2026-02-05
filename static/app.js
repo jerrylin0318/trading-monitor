@@ -748,10 +748,18 @@ function updateLiveCandle(watchId, price) {
     
     const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
     
-    // Update live MA point
+    // Update live MA point (middle line for BB)
     const data = state.latestData[watchId];
     if (data?.ma_value && chartSeries[watchId]?.ma) {
         chartSeries[watchId].ma.update({ time: todayTime, value: data.ma_value });
+    }
+    
+    // Update live BB bands
+    if (data?.bb_upper && chartSeries[watchId]?.bbUpper) {
+        chartSeries[watchId].bbUpper.update({ time: todayTime, value: data.bb_upper });
+    }
+    if (data?.bb_lower && chartSeries[watchId]?.bbLower) {
+        chartSeries[watchId].bbLower.update({ time: todayTime, value: data.bb_lower });
     }
     
     // Update live confirm MA point
