@@ -1119,10 +1119,17 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
             </div>
             <div class="exit-option">
                 <label><input type="checkbox" id="exit-${watch.id}-bb" ${ex.bb ? 'checked' : ''} onchange="saveExitSel('${watch.id}','bb',this.checked)"> 4️⃣ 布林帶平倉</label>
-                <span>價格觸及 <select id="exit-${watch.id}-bb-target" onchange="saveExitVal('${watch.id}','bbTarget',this.value)">
+                <span>價格 <select id="exit-${watch.id}-bb-cond" onchange="saveExitVal('${watch.id}','bbCond',this.value)">
+                    <option value="above" ${ex.bbCond === 'above' || !ex.bbCond ? 'selected' : ''}>高於</option>
+                    <option value="below" ${ex.bbCond === 'below' ? 'selected' : ''}>低於</option>
+                </select> <select id="exit-${watch.id}-bb-target" onchange="saveExitVal('${watch.id}','bbTarget',this.value)">
                     <option value="middle" ${ex.bbTarget === 'middle' || !ex.bbTarget ? 'selected' : ''}>中軌</option>
                     <option value="opposite" ${ex.bbTarget === 'opposite' ? 'selected' : ''}>反向軌</option>
-                </select></span>
+                </select> <select id="exit-${watch.id}-bb-dir" onchange="saveExitVal('${watch.id}','bbDir',this.value)">
+                    <option value="+" ${ex.bbDir === '+' || !ex.bbDir ? 'selected' : ''}>+</option>
+                    <option value="-" ${ex.bbDir === '-' ? 'selected' : ''}>-</option>
+                </select>
+                <input type="number" id="exit-${watch.id}-bb-pts" value="${ex.bbPts || 0}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','bbPts',this.value)"> 點</span>
             </div>
             <div class="exit-actions">
                 <button class="btn btn-sm btn-success" onclick="placeOrder('${watch.id}')">📥 市價下單</button>
@@ -1249,7 +1256,10 @@ async function placeOrder(watchId) {
         },
         bb: {
             enabled: !!ex.bb,
+            cond: ex.bbCond || 'above',       // 'above' or 'below'
             target: ex.bbTarget || 'middle',  // 'middle' or 'opposite'
+            dir: ex.bbDir || '+',             // '+' or '-'
+            pts: parseFloat(ex.bbPts) || 0,
         },
     };
 
@@ -1258,7 +1268,11 @@ async function placeOrder(watchId) {
     if (exitConfig.limit.enabled) exitDesc.push(`限價止盈 ${exitConfig.limit.dir}${exitConfig.limit.pts}點`);
     if (exitConfig.time.enabled) exitDesc.push(`時間平倉 ${exitConfig.time.value}`);
     if (exitConfig.ma.enabled) exitDesc.push(`均線平倉 ${exitConfig.ma.cond === 'above' ? '高於' : '低於'}MA${exitConfig.ma.dir}${exitConfig.ma.pts}點`);
-    if (exitConfig.bb.enabled) exitDesc.push(`BB平倉 觸及${exitConfig.bb.target === 'middle' ? '中軌' : '反向軌'}`);
+    if (exitConfig.bb.enabled) {
+        const targetLabel = exitConfig.bb.target === 'middle' ? '中軌' : '反向軌';
+        const condLabel = exitConfig.bb.cond === 'above' ? '高於' : '低於';
+        exitDesc.push(`BB平倉 ${condLabel}${targetLabel}${exitConfig.bb.dir}${exitConfig.bb.pts}點`);
+    }
 
     let confirmMsg = `確認下單 ${w.symbol}？\n\n`;
     displayItems.forEach(d => {

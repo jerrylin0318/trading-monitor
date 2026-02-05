@@ -119,7 +119,7 @@ class ActiveTrade:
     direction: str                   # BUY or SELL
     entry_time: str                  # ISO timestamp
     orders: List[Dict[str, Any]]     # [{conId, symbol, strike, right, expiry, qty, avg_cost, ib_order_id}]
-    exit_strategies: Dict[str, Any]  # {limit: {enabled, pts, dir, order_ids}, time: {enabled, value}, ma: {enabled, cond, dir, pts}, bb: {enabled, target}}
+    exit_strategies: Dict[str, Any]  # {limit: {enabled, pts, dir, order_ids}, time: {enabled, value}, ma: {enabled, cond, dir, pts}, bb: {enabled, cond, target, dir, pts}}
     status: str = "pending"          # pending → filled → exiting → closed
 
     def to_dict(self):

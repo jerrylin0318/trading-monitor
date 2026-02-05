@@ -460,31 +460,43 @@ async def monitor_loop():
                         bb_upper = data.get("bb_upper")
                         bb_lower = data.get("bb_lower")
                         target_type = bb_exit.get("target", "middle")  # "middle" or "opposite"
+                        cond = bb_exit.get("cond", "above")  # "above" or "below"
+                        offset_dir = bb_exit.get("dir", "+")  # "+" or "-"
+                        offset_pts = float(bb_exit.get("pts", 0))
                         trade_dir = trade.get("direction", "BUY")
 
-                        triggered = False
-                        target_desc = ""
-
+                        # Determine base value based on target
+                        base_val = None
+                        target_label = ""
                         if target_type == "middle" and bb_middle:
-                            # Exit when price reaches middle band
-                            if trade_dir == "BUY" and current_price >= bb_middle:
-                                triggered = True
-                                target_desc = f"中軌 {bb_middle:.2f}"
-                            elif trade_dir == "SELL" and current_price <= bb_middle:
-                                triggered = True
-                                target_desc = f"中軌 {bb_middle:.2f}"
+                            base_val = bb_middle
+                            target_label = "中軌"
                         elif target_type == "opposite":
-                            # Exit when price reaches opposite band
-                            if trade_dir == "BUY" and bb_upper and current_price >= bb_upper:
+                            if trade_dir == "BUY" and bb_upper:
+                                base_val = bb_upper
+                                target_label = "上軌"
+                            elif trade_dir == "SELL" and bb_lower:
+                                base_val = bb_lower
+                                target_label = "下軌"
+
+                        if base_val is not None:
+                            # Apply offset
+                            if offset_dir == "+":
+                                target = base_val + offset_pts
+                            else:
+                                target = base_val - offset_pts
+
+                            triggered = False
+                            if cond == "above" and current_price > target:
                                 triggered = True
-                                target_desc = f"上軌 {bb_upper:.2f}"
-                            elif trade_dir == "SELL" and bb_lower and current_price <= bb_lower:
+                            elif cond == "below" and current_price < target:
                                 triggered = True
-                                target_desc = f"下軌 {bb_lower:.2f}"
 
                         if triggered:
                             trade["status"] = "exiting"
-                            logger.info("📈 BB exit triggered for trade %s: price=%.2f → %s", trade_id, current_price, target_desc)
+                            logger.info("📈 BB exit triggered for trade %s: price=%.2f %s %s%s%.1f = %.2f", 
+                                       trade_id, current_price, ">" if cond == "above" else "<", 
+                                       target_label, offset_dir, offset_pts, target)
                             for order_info in trade["orders"]:
                                 if order_info.get("conId") and order_info.get("qty_requested"):
                                     try:
@@ -562,7 +574,7 @@ app = FastAPI(title="Trading Monitor", lifespan=lifespan)
 class OrderRequest(BaseModel):
     watch_id: str
     items: List[Dict[str, Any]]  # [{conId, right, strike, expiry, amount, ask}]
-    exit: Dict[str, Any] = {}     # {limit: {enabled, dir, pts}, time: {enabled, value}, ma: {enabled, cond, dir, pts}, bb: {enabled, target}}
+    exit: Dict[str, Any] = {}     # {limit: {enabled, dir, pts}, time: {enabled, value}, ma: {enabled, cond, dir, pts}, bb: {enabled, cond, target, dir, pts}}
 
 
 class WatchItemCreate(BaseModel):
