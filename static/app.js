@@ -477,7 +477,9 @@ function toggleExpand(watchId) {
         // Refresh current expiry prices when expanding
         if (!standaloneMode) {
             const data = state.latestData[watchId];
-            const expiries = Object.keys(data?.options_call || {});
+            const callKeys = Object.keys(data?.options_call || {});
+            const putKeys = Object.keys(data?.options_put || {});
+            const expiries = callKeys.length ? callKeys : putKeys;
             const expiry = data?.selected_expiry || expiries[0];
             if (expiry) {
                 api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST').catch(() => {});
@@ -488,7 +490,10 @@ function toggleExpand(watchId) {
 }
 
 function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
-    const expiries = Object.keys(callOptsData || {});
+    // Determine expiries from whichever side has data (LONG=call, SHORT=put)
+    const callKeys = Object.keys(callOptsData || {});
+    const putKeys = Object.keys(putOptsData || {});
+    const expiries = callKeys.length ? callKeys : putKeys;
     if (!expiries.length) {
         return '<div class="opts-section"><div class="empty-state">尚無選擇權數據</div></div>';
     }
@@ -587,9 +592,9 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}</div>`
         : '';
 
-    const strategy = watch.strategy || 'BOTH';
-    const showCall = strategy === 'BUY' || strategy === 'BOTH';
-    const showPut = strategy === 'SELL' || strategy === 'BOTH';
+    const direction = watch.direction || 'LONG';
+    const showCall = direction === 'LONG';
+    const showPut = direction === 'SHORT';
 
     return `<div class="opts-section">
         <div class="expiry-tabs-row">
@@ -598,8 +603,8 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         </div>
         ${lockedInfo}
         ${underlying}
-        ${showCall ? renderSide(callOpts, 'Call 價外5檔（買進用）', 'var(--green)') : ''}
-        ${showPut ? renderSide(putOpts, 'Put 價外5檔（賣出用）', 'var(--red)') : ''}
+        ${showCall ? renderSide(callOpts, 'Call 價外5檔（做多買權）', 'var(--green)') : ''}
+        ${showPut ? renderSide(putOpts, 'Put 價外5檔（做空買權）', 'var(--red)') : ''}
         ${exitConfig}
     </div>`;
 }

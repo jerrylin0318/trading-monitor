@@ -177,18 +177,29 @@ def _group_options(flat_list: list) -> Dict:
 
 
 async def cache_options_for_watch(watch_id: str, watch, ma_price: float, fetch_prices: bool = True):
-    """Fetch and cache Call+Put option contracts, optionally with initial prices."""
+    """Fetch and cache option contracts based on direction, optionally with initial prices.
+    
+    LONG → only Call (buy calls on BUY signal)
+    SHORT → only Put (buy puts on SELL signal)
+    3 nearest expirations × 5 OTM strikes ≈ 15 contracts per watch item.
+    """
     try:
-        calls = await ib.get_option_chain(
-            watch.symbol, watch.sec_type, watch.exchange, watch.currency,
-            ma_price=ma_price, right="C", num_strikes=5,
-            contract_month=watch.contract_month
-        )
-        puts = await ib.get_option_chain(
-            watch.symbol, watch.sec_type, watch.exchange, watch.currency,
-            ma_price=ma_price, right="P", num_strikes=5,
-            contract_month=watch.contract_month
-        )
+        direction = getattr(watch, 'direction', 'LONG')
+        calls = []
+        puts = []
+        
+        if direction == "LONG":
+            calls = await ib.get_option_chain(
+                watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+                ma_price=ma_price, right="C", num_strikes=5,
+                contract_month=watch.contract_month, num_expirations=3
+            )
+        else:  # SHORT
+            puts = await ib.get_option_chain(
+                watch.symbol, watch.sec_type, watch.exchange, watch.currency,
+                ma_price=ma_price, right="P", num_strikes=5,
+                contract_month=watch.contract_month, num_expirations=3
+            )
         
         # Fetch initial prices (batch snapshot)
         if fetch_prices and (calls or puts):
@@ -203,8 +214,10 @@ async def cache_options_for_watch(watch_id: str, watch, ma_price: float, fetch_p
             "call": _group_options(calls), "put": _group_options(puts),
             "ma_price": ma_price,
         }
-        logger.info("Cached options for %s: %d calls, %d puts (MA=%.2f)",
-                     watch.symbol, len(calls), len(puts), ma_price)
+        total = len(calls) + len(puts)
+        side = "calls" if direction == "LONG" else "puts"
+        logger.info("Cached %d %s for %s (direction=%s, MA=%.2f)",
+                     total, side, watch.symbol, direction, ma_price)
     except Exception as e:
         logger.error("Failed to cache options for %s: %s", watch.symbol, e)
 
@@ -316,10 +329,12 @@ async def monitor_loop():
                     # 🔔 Signal triggered! Refresh option prices for order-ready data
                     opt_cache = _options_cache.get(watch_id)
                     if opt_cache:
-                        refreshed_calls = await ib.refresh_option_prices(opt_cache["call_raw"])
-                        refreshed_puts = await ib.refresh_option_prices(opt_cache["put_raw"])
-                        opt_cache["call"] = _group_options(refreshed_calls)
-                        opt_cache["put"] = _group_options(refreshed_puts)
+                        if opt_cache["call_raw"]:
+                            await ib.refresh_option_prices(opt_cache["call_raw"])
+                            opt_cache["call"] = _group_options(opt_cache["call_raw"])
+                        if opt_cache["put_raw"]:
+                            await ib.refresh_option_prices(opt_cache["put_raw"])
+                            opt_cache["put"] = _group_options(opt_cache["put_raw"])
                         data["options_call"] = opt_cache["call"]
                         data["options_put"] = opt_cache["put"]
                         await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
@@ -674,18 +689,21 @@ async def refresh_watch_options(watch_id: str):
     # Refresh prices
     cache = _options_cache.get(watch_id)
     if cache:
-        refreshed_calls = await ib.refresh_option_prices(cache["call_raw"])
-        refreshed_puts = await ib.refresh_option_prices(cache["put_raw"])
-        cache["call"] = _group_options(refreshed_calls)
-        cache["put"] = _group_options(refreshed_puts)
+        if cache.get("call_raw"):
+            await ib.refresh_option_prices(cache["call_raw"])
+            cache["call"] = _group_options(cache["call_raw"])
+        if cache.get("put_raw"):
+            await ib.refresh_option_prices(cache["put_raw"])
+            cache["put"] = _group_options(cache["put_raw"])
         
-        data["options_call"] = cache["call"]
-        data["options_put"] = cache["put"]
+        data["options_call"] = cache.get("call", {})
+        data["options_put"] = cache.get("put", {})
         data["locked_ma"] = ma_price
         
         await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
     
-    return {"ok": True, "calls": len(cache.get("call_raw", [])), "puts": len(cache.get("put_raw", []))}
+    total = len(cache.get("call_raw", [])) + len(cache.get("put_raw", []))
+    return {"ok": True, "total": total}
 
 
 @app.post("/api/options/prices/{watch_id}")
@@ -698,28 +716,32 @@ async def update_option_prices(watch_id: str, expiry: Optional[str] = None):
         return {"error": "No cached options"}
 
     if expiry:
-        # Refresh only the specified expiry's options (fast — ~5-10 contracts)
-        call_subset = [o for o in cache["call_raw"] if o["expiry"] == expiry]
-        put_subset = [o for o in cache["put_raw"] if o["expiry"] == expiry]
+        # Refresh only the specified expiry's options (fast — ~5 contracts)
+        call_subset = [o for o in cache.get("call_raw", []) if o["expiry"] == expiry]
+        put_subset = [o for o in cache.get("put_raw", []) if o["expiry"] == expiry]
         if call_subset:
             await ib.refresh_option_prices(call_subset)
         if put_subset:
             await ib.refresh_option_prices(put_subset)
         # Regroup all (includes freshly updated subset)
-        cache["call"] = _group_options(cache["call_raw"])
-        cache["put"] = _group_options(cache["put_raw"])
-        logger.info("Refreshed prices for %s expiry %s (%d calls, %d puts)",
-                     watch_id, expiry, len(call_subset), len(put_subset))
+        if cache.get("call_raw"):
+            cache["call"] = _group_options(cache["call_raw"])
+        if cache.get("put_raw"):
+            cache["put"] = _group_options(cache["put_raw"])
+        refreshed = len(call_subset) + len(put_subset)
+        logger.info("Refreshed prices for %s expiry %s (%d contracts)", watch_id, expiry, refreshed)
     else:
         # Refresh all expirations
-        await ib.refresh_option_prices(cache["call_raw"])
-        await ib.refresh_option_prices(cache["put_raw"])
-        cache["call"] = _group_options(cache["call_raw"])
-        cache["put"] = _group_options(cache["put_raw"])
+        if cache.get("call_raw"):
+            await ib.refresh_option_prices(cache["call_raw"])
+            cache["call"] = _group_options(cache["call_raw"])
+        if cache.get("put_raw"):
+            await ib.refresh_option_prices(cache["put_raw"])
+            cache["put"] = _group_options(cache["put_raw"])
 
     data = engine.latest_data.get(watch_id, {})
-    data["options_call"] = cache["call"]
-    data["options_put"] = cache["put"]
+    data["options_call"] = cache.get("call", {})
+    data["options_put"] = cache.get("put", {})
 
     await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
     return {"ok": True, "expiry": expiry}

@@ -70,10 +70,16 @@ function handleMessage(msg) {
             renderPositions();
             updateStatusUI();
             break;
-        case 'data_update':
-            state.latestData[msg.watch_id] = msg.data;
+        case 'data_update': {
+            // Merge incoming data, preserve client-side state (selected_expiry, etc.)
+            const prev = state.latestData[msg.watch_id] || {};
+            state.latestData[msg.watch_id] = { ...prev, ...msg.data };
+            if (prev.selected_expiry && !msg.data.selected_expiry) {
+                state.latestData[msg.watch_id].selected_expiry = prev.selected_expiry;
+            }
             renderWatchList();
             break;
+        }
         case 'watch_update':
             state.watchList = msg.watch_list || [];
             renderWatchList();
@@ -88,6 +94,17 @@ function handleMessage(msg) {
             // Play sound
             try { new Audio('data:audio/wav;base64,UklGRl9vT19teleQBAAAAAABAAEARKwAAIhYAQACABAAAABkYXRhQW9PbwA=').play(); } catch(e) {}
             break;
+        case 'trade_update': {
+            const t = msg.trade;
+            if (t) {
+                const emoji = t.status === 'closed' ? '✅' : t.status === 'exiting' ? '⏳' : '📊';
+                log(`${emoji} 交易 ${t.symbol} [${t.id}]: ${t.status}`, t.status === 'closed' ? 'success' : 'info');
+                if (t.status === 'closed' || t.status === 'exiting') {
+                    showToast(`${t.symbol} 已平倉`, 'sell');
+                }
+            }
+            break;
+        }
         case 'error':
             log(msg.message, 'error');
             break;
@@ -95,7 +112,7 @@ function handleMessage(msg) {
 }
 
 // ─── API calls ───
-async function api(path, method = 'GET', body = null) {
+async function _realApi(path, method = 'GET', body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     try {
@@ -105,6 +122,9 @@ async function api(path, method = 'GET', body = null) {
         log(`API 錯誤: ${e.message}`, 'error');
         return null;
     }
+}
+async function api(path, method = 'GET', body = null) {
+    return _realApi(path, method, body);
 }
 
 async function toggleConnect() {
@@ -337,7 +357,23 @@ function renderWatchList() {
         const price = data.current_price ? data.current_price.toFixed(2) : '--';
         const ma = data.ma_value ? data.ma_value.toFixed(2) : '--';
         const dist = data.distance_from_ma != null ? data.distance_from_ma.toFixed(2) : '--';
-        const zone = data.buy_zone || data.sell_zone || '--';
+        const stratClass = w.strategy === 'BUY' ? 'BUY' : 'SELL';
+        const stratLabel = w.strategy === 'BUY' ? '📈 做多' : '📉 做空';
+        
+        // 觸發區 + 有效性判斷
+        const maRight = (w.strategy === 'BUY' && dir === 'RISING') || (w.strategy === 'SELL' && dir === 'FALLING');
+        let zone = '--';
+        let zoneActive = false;
+        if (data.ma_value) {
+            if (w.strategy === 'BUY') {
+                zone = `${data.ma_value.toFixed(2)} ~ ${(data.ma_value + w.n_points).toFixed(2)}`;
+                zoneActive = maRight && data.current_price >= data.ma_value && data.current_price <= data.ma_value + w.n_points;
+            } else {
+                zone = `${(data.ma_value - w.n_points).toFixed(2)} ~ ${data.ma_value.toFixed(2)}`;
+                zoneActive = maRight && data.current_price >= data.ma_value - w.n_points && data.current_price <= data.ma_value;
+            }
+        }
+        const zoneStatus = !data.ma_value ? '' : zoneActive ? '🟢' : maRight ? '🟡' : '⚪';
 
         const callOpts = data.options_call || [];
         const putOpts = data.options_put || [];
@@ -346,7 +382,10 @@ function renderWatchList() {
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}">
             <div class="watch-top-row">
-                <div class="watch-symbol">${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span> <span class="strategy-tag ${w.strategy || 'BOTH'}">${w.strategy === 'BUY' ? '📈 買' : w.strategy === 'SELL' ? '📉 賣' : '↔️ 雙向'}</span></div>
+                <div class="watch-symbol">
+                    <span class="strategy-badge ${stratClass}">${stratLabel}</span>
+                    ${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span>
+                </div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
@@ -364,10 +403,10 @@ function renderWatchList() {
             <div class="watch-bottom-row">
                 <div class="watch-ma-info">
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
-                    <span class="watch-price-info">觸發區: ${zone}</span>
+                    <span class="trigger-zone ${zoneActive ? 'active' : maRight ? 'ready' : ''}" title="${maRight ? (zoneActive ? '條件滿足！' : 'MA方向正確，等待價格進入') : 'MA方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
                 </div>
                 <div style="display:flex;gap:4px;">
-                    ${expanded ? `<button class="btn btn-sm" onclick="resetOptions('${w.id}')" title="依當前MA重新篩選">🔄</button>` : ''}
+                    ${expanded ? `<button class="btn btn-sm" onclick="updateOptionPrices('${w.id}')" title="更新報價">🔄</button>` : ''}
                     <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
                         ${expanded ? '收起 ▲' : '選擇權 ▼'}
                     </button>
@@ -379,35 +418,89 @@ function renderWatchList() {
     container.innerHTML = html;
 }
 
-function resetOptions(watchId) {
+async function resetOptions(watchId) {
     const data = state.latestData[watchId];
-    if (!data) return;
     const w = state.watchList.find(x => x.id === watchId);
     if (!w) return;
-    const base = data.current_price || 100;
-    const maVal = data.ma_value || base;
-    data.options_call = genDemoOptions(w.symbol, 'C', maVal, base);
-    data.options_put = genDemoOptions(w.symbol, 'P', maVal, base);
-    data.locked_ma = maVal;
-    data.selected_expiry = Object.keys(data.options_call)[0];
-    renderWatchList();
-    log(`${w.symbol} 選擇權已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
+    const base = data?.current_price || 100;
+    const maVal = data?.ma_value || base;
+    
+    if (standaloneMode) {
+        // Demo mode: use generated data
+        if (data) {
+            data.options_call = genDemoOptions(w.symbol, 'C', maVal, base);
+            data.options_put = genDemoOptions(w.symbol, 'P', maVal, base);
+            data.locked_ma = maVal;
+            data.selected_expiry = Object.keys(data.options_call)[0];
+        }
+        renderWatchList();
+        log(`${w.symbol} 選擇權已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
+        return;
+    }
+    
+    // Real mode: call backend refresh endpoint (re-cache + price update)
+    log(`正在刷新 ${w.symbol} 期權...`, 'info');
+    try {
+        const res = await api(`/api/options/refresh/${watchId}`, 'POST');
+        if (res?.ok) {
+            log(`${w.symbol} 期權已刷新 (Call:${res.calls} Put:${res.puts})`, 'success');
+            // data_update will arrive via WebSocket and trigger re-render
+        } else {
+            log(`刷新失敗: ${res?.error || '未知錯誤'}`, 'error');
+        }
+    } catch (e) {
+        log(`刷新失敗: ${e.message}`, 'error');
+    }
+}
+
+async function updateOptionPrices(watchId) {
+    const w = state.watchList.find(x => x.id === watchId);
+    if (!w) return;
+    log(`正在更新 ${w.symbol} 報價...`, 'info');
+    try {
+        const res = await api(`/api/options/prices/${watchId}`, 'POST');
+        if (res?.ok) {
+            log(`${w.symbol} 報價已更新`, 'success');
+        } else {
+            log(`更新失敗: ${res?.error || '未知'}`, 'error');
+        }
+    } catch (e) {
+        log(`更新失敗: ${e.message}`, 'error');
+    }
 }
 
 function toggleExpand(watchId) {
-    state.expandedWatch = state.expandedWatch === watchId ? null : watchId;
+    if (state.expandedWatch === watchId) {
+        state.expandedWatch = null;
+    } else {
+        state.expandedWatch = watchId;
+        // Refresh current expiry prices when expanding
+        if (!standaloneMode) {
+            const data = state.latestData[watchId];
+            const callKeys = Object.keys(data?.options_call || {});
+            const putKeys = Object.keys(data?.options_put || {});
+            const expiries = callKeys.length ? callKeys : putKeys;
+            const expiry = data?.selected_expiry || expiries[0];
+            if (expiry) {
+                api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST').catch(() => {});
+            }
+        }
+    }
     renderWatchList();
 }
 
 function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
-    const expiries = Object.keys(callOptsData || {});
+    // Determine expiries from whichever side has data (LONG=call, SHORT=put)
+    const callKeys = Object.keys(callOptsData || {});
+    const putKeys = Object.keys(putOptsData || {});
+    const expiries = callKeys.length ? callKeys : putKeys;
     if (!expiries.length) {
         return '<div class="opts-section"><div class="empty-state">尚無選擇權數據</div></div>';
     }
 
     const selectedExpiry = data.selected_expiry || expiries[0];
-    const callOpts = callOptsData[selectedExpiry]?.options || [];
-    const putOpts = putOptsData[selectedExpiry]?.options || [];
+    const callOpts = (callOptsData[selectedExpiry]?.options || []).slice().sort((a, b) => b.strike - a.strike);
+    const putOpts = (putOptsData[selectedExpiry]?.options || []).slice().sort((a, b) => b.strike - a.strike);
 
     // Expiry tabs
     const expiryTabs = expiries.map(exp => {
@@ -420,24 +513,29 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     const renderSide = (opts, label, color) => {
         if (!opts.length) return '';
         let rows = opts.map((o, i) => {
-            const optKey = `${o.right}-${i}`;
+            const optKey = `${o.conId || o.right + '-' + i}`;
             const optSel = sel[optKey] || {};
             const checked = optSel.checked ? 'checked' : '';
             const amt = optSel.amount || 1000;
             return `
             <div class="opt-inline-row">
-                <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}" class="opt-check" data-ask="${o.ask}" data-key="${optKey}" ${checked} onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
+                <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
+                    data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
+                    data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
+                    data-multiplier="${o.multiplier || 100}" data-key="${optKey}" ${checked}
+                    onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
                 <span class="opt-inline-strike">${o.strike}</span>
                 <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
-                <span class="opt-inline-ba">${o.bid?.toFixed(2)}/${o.ask?.toFixed(2)}</span>
+                <span class="opt-inline-ba">${o.bid?.toFixed(2) ?? '--'}/${o.ask?.toFixed(2) ?? '--'}</span>
                 <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
+                <span class="opt-inline-vol">${o.volume || '--'}</span>
                 <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
             </div>`;
         }).join('');
         return `<div class="opt-inline-group">
             <div class="opt-inline-label" style="color:${color}">${label}</div>
             <div class="opt-inline-header">
-                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>金額$</span>
+                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>金額$</span>
             </div>
             ${rows}
         </div>`;
@@ -494,9 +592,9 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🔒 鎖定 MA = ${data.locked_ma.toFixed(2)}</div>`
         : '';
 
-    const strategy = watch.strategy || 'BOTH';
-    const showCall = strategy === 'BUY' || strategy === 'BOTH';
-    const showPut = strategy === 'SELL' || strategy === 'BOTH';
+    const direction = watch.direction || 'LONG';
+    const showCall = direction === 'LONG';
+    const showPut = direction === 'SHORT';
 
     return `<div class="opts-section">
         <div class="expiry-tabs-row">
@@ -505,16 +603,25 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         </div>
         ${lockedInfo}
         ${underlying}
-        ${showCall ? renderSide(callOpts, 'Call 價外5檔（買進用）', 'var(--green)') : ''}
-        ${showPut ? renderSide(putOpts, 'Put 價外5檔（賣出用）', 'var(--red)') : ''}
+        ${showCall ? renderSide(callOpts, 'Call 價外5檔（做多買權）', 'var(--green)') : ''}
+        ${showPut ? renderSide(putOpts, 'Put 價外5檔（做空買權）', 'var(--red)') : ''}
         ${exitConfig}
     </div>`;
 }
 
-function selectExpiry(watchId, expiry) {
+async function selectExpiry(watchId, expiry) {
     if (state.latestData[watchId]) {
         state.latestData[watchId].selected_expiry = expiry;
         renderWatchList();
+
+        // Fetch latest prices for this expiry (snapshot)
+        if (!standaloneMode) {
+            try {
+                await api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST');
+            } catch (e) {
+                // Silent fail — cached data still shows
+            }
+        }
     }
 }
 
@@ -540,58 +647,117 @@ function saveExitVal(watchId, key, value) {
     state.optSelections[watchId].exit[key] = value;
 }
 
-function placeOrder(watchId) {
+async function placeOrder(watchId) {
     const w = state.watchList.find(x => x.id === watchId);
     if (!w) return;
 
     const sel = state.optSelections[watchId] || {};
     const ex = sel.exit || {};
 
-    // Collect checked options from saved state
-    const checkedOpts = Object.entries(sel).filter(([k, v]) => k !== 'exit' && v.checked);
-    if (checkedOpts.length === 0) {
-        log('請先勾選要交易的商品', 'warning');
+    // Collect checked options from DOM (has latest data attributes)
+    const checkboxes = document.querySelectorAll(`input.opt-check[id^="opt-${watchId}-"]:checked`);
+    if (checkboxes.length === 0) {
+        log('請先勾選要交易的選擇權', 'warning');
         return;
     }
 
-    // Collect exit strategies from saved state
-    const exitStrategies = [];
-    if (ex.profit) {
-        exitStrategies.push(`限價止盈: 成交價${ex.profitDir || '+'}${ex.profitPts || 0.5}點`);
-    }
-    if (ex.time) {
-        exitStrategies.push(`時間平倉: ${ex.timeVal || '15:55'}`);
-    }
-    if (ex.ma) {
-        const cond = ex.maCond === 'below' ? '低於' : '高於';
-        exitStrategies.push(`均線平倉: 標的${cond}MA${ex.maDir || '+'}${ex.maPts || 5}點`);
-    }
+    // Build order items from DOM
+    const items = [];
+    const displayItems = [];
+    checkboxes.forEach(chk => {
+        const conId = parseInt(chk.dataset.conid);
+        const ask = parseFloat(chk.dataset.ask);
+        const strike = chk.dataset.strike;
+        const right = chk.dataset.right;
+        const expiry = chk.dataset.expiry;
+        const key = chk.dataset.key;
+        const amtInput = chk.closest('.opt-inline-row')?.querySelector('.opt-inline-amt');
+        const amount = parseFloat(amtInput?.value) || 1000;
 
-    // Calculate quantities from amounts
-    const orders = [];
-    checkedOpts.forEach(([key, opt]) => {
-        const amount = opt.amount || 1000;
-        // Get ask from DOM as it updates
-        const chk = document.querySelector(`input[data-key="${key}"]`);
-        const ask = parseFloat(chk?.dataset.ask) || 1;
-        const isStock = key === 'stk';
-        const qty = isStock ? Math.floor(amount / ask) : Math.floor(amount / (ask * 100));
-        orders.push({ key, amount, ask, qty: Math.max(qty, 1) });
+        if (key === 'stk') return; // Skip underlying for now (options only)
+        if (!conId || !ask || ask <= 0) return;
+
+        // Use actual multiplier from contract (FOP: MNQ=2, MES=5; STK options=100)
+        const multiplier = parseFloat(chk.dataset.multiplier) || 100;
+        const qty = Math.max(1, Math.floor(amount / (ask * multiplier)));
+        items.push({ conId, ask, amount, right, strike: parseFloat(strike), expiry });
+        displayItems.push({ strike, right, expiry: expiry?.slice(4), ask, qty, amount, multiplier });
     });
 
-    // Log the order (demo mode)
-    log(`📥 下單 ${w.symbol}:`, 'success');
-    orders.forEach(o => {
-        const label = o.key === 'stk' ? '標的' : o.key;
-        log(`   ${label} | 金額$${o.amount} ÷ Ask$${o.ask} = ${o.qty}口 市價買入`, 'info');
+    if (items.length === 0) {
+        log('無有效選擇權可下單（需有 Ask 價格）', 'warning');
+        return;
+    }
+
+    // Build exit strategies
+    const exitConfig = {
+        limit: {
+            enabled: !!ex.profit,
+            dir: ex.profitDir || '+',
+            pts: parseFloat(ex.profitPts) || 0.5,
+        },
+        time: {
+            enabled: !!ex.time,
+            value: ex.timeVal || '15:55',
+        },
+        ma: {
+            enabled: !!ex.ma,
+            cond: ex.maCond || 'above',
+            dir: ex.maDir || '+',
+            pts: parseFloat(ex.maPts) || 5,
+        },
+    };
+
+    // Show confirmation
+    const exitDesc = [];
+    if (exitConfig.limit.enabled) exitDesc.push(`限價止盈 ${exitConfig.limit.dir}${exitConfig.limit.pts}點`);
+    if (exitConfig.time.enabled) exitDesc.push(`時間平倉 ${exitConfig.time.value}`);
+    if (exitConfig.ma.enabled) exitDesc.push(`均線平倉 ${exitConfig.ma.cond === 'above' ? '高於' : '低於'}MA${exitConfig.ma.dir}${exitConfig.ma.pts}點`);
+
+    let confirmMsg = `確認下單 ${w.symbol}？\n\n`;
+    displayItems.forEach(d => {
+        const cost = d.ask * d.qty * d.multiplier;
+        confirmMsg += `${d.right} ${d.strike} (${d.expiry}) | Ask $${d.ask} × ${d.qty}口 × ${d.multiplier} = $${cost.toFixed(0)}\n`;
     });
-    if (exitStrategies.length) {
-        log(`   平倉策略: ${exitStrategies.join(', ')}`, 'info');
+    if (exitDesc.length) {
+        confirmMsg += `\n平倉策略: ${exitDesc.join(' / ')}`;
     } else {
-        log(`   ⚠️ 未設定平倉策略`, 'warning');
+        confirmMsg += `\n⚠️ 未設定平倉策略`;
     }
 
-    showToast(`${w.symbol} 模擬下單成功`, 'buy');
+    if (!confirm(confirmMsg)) {
+        log('下單已取消', 'info');
+        return;
+    }
+
+    // Send order to backend
+    log(`📥 正在下單 ${w.symbol}...`, 'info');
+    try {
+        const res = await api('/api/order', 'POST', {
+            watch_id: watchId,
+            items,
+            exit: exitConfig,
+        });
+
+        if (res?.ok) {
+            log(`✅ ${w.symbol} 下單成功！Trade ID: ${res.trade_id}`, 'success');
+            (res.orders || []).forEach(o => {
+                const status = o.status || 'Unknown';
+                const fill = o.avgFillPrice ? `成交 $${o.avgFillPrice}` : '等待成交';
+                log(`   Order #${o.orderId}: ${status} — ${fill} (${o.qty_requested}口)`, 'info');
+                if (o.exit_limit_order) {
+                    log(`   📤 限價止盈已掛: Order #${o.exit_limit_order.orderId}`, 'info');
+                }
+            });
+            showToast(`${w.symbol} 下單成功`, 'buy');
+        } else {
+            log(`❌ 下單失敗: ${res?.error || '未知錯誤'}`, 'error');
+            showToast(`${w.symbol} 下單失敗`, 'sell');
+        }
+    } catch (e) {
+        log(`❌ 下單錯誤: ${e.message}`, 'error');
+        showToast('下單失敗', 'sell');
+    }
 }
 
 function renderSignals() {
@@ -832,7 +998,6 @@ function genDemoOptions(symbol, right, maVal, basePrice) {
 }
 
 // Override API for standalone mode
-const _origApi = api;
 async function api(path, method = 'GET', body = null) {
     if (standaloneMode) {
         // Handle locally
@@ -863,7 +1028,7 @@ async function api(path, method = 'GET', body = null) {
         }
         return {};
     }
-    return _origApi(path, method, body);
+    return _realApi(path, method, body);
 }
 
 // ─── Init ───
@@ -872,7 +1037,7 @@ window.addEventListener('load', () => {
 
     // Register Service Worker
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').then(() => {
+        navigator.serviceWorker.register('/static/sw.js').then(() => {
             log('PWA Service Worker 已註冊', 'info');
         }).catch(e => log('SW 註冊失敗: ' + e.message, 'warning'));
     }
@@ -905,14 +1070,17 @@ function updateContractDropdown() {
     const secType = document.getElementById('w-sectype').value;
     const group = document.getElementById('w-contract-group');
     const select = document.getElementById('w-contract');
+    const exchangeInput = document.getElementById('w-exchange');
     if (secType === 'FUT') {
         group.style.display = 'block';
+        exchangeInput.value = 'CME';  // 期貨自動設為 CME
         const months = getNearestContractMonths(2);
         select.innerHTML = months.map((m, i) => 
             `<option value="${m.value}">${m.label}${i === 0 ? ' (近月)' : ' (次近月)'}</option>`
         ).join('');
     } else {
         group.style.display = 'none';
+        exchangeInput.value = 'SMART';  // 股票恢復 SMART
     }
 }
 
