@@ -531,6 +531,8 @@ class WatchItemCreate(BaseModel):
     direction: str = "LONG"
     confirm_ma_enabled: bool = False
     confirm_ma_period: int = 55
+    strategy_type: str = "MA"  # MA or BB
+    bb_std_dev: float = 2.0
 
 
 class WatchItemUpdate(BaseModel):
@@ -543,6 +545,8 @@ class WatchItemUpdate(BaseModel):
     enabled: Optional[bool] = None
     confirm_ma_enabled: Optional[bool] = None
     confirm_ma_period: Optional[int] = None
+    strategy_type: Optional[str] = None
+    bb_std_dev: Optional[float] = None
     contract_month: Optional[str] = None
     direction: Optional[str] = None
 
@@ -646,6 +650,8 @@ async def add_watch(item: WatchItemCreate):
         direction=item.direction,
         confirm_ma_enabled=item.confirm_ma_enabled,
         confirm_ma_period=item.confirm_ma_period,
+        strategy_type=item.strategy_type,
+        bb_std_dev=item.bb_std_dev,
     )
     engine.add_watch(watch)
     save_config()

@@ -44,6 +44,8 @@ class WatchItem:
     direction: str = "LONG"  # LONG or SHORT
     confirm_ma_enabled: bool = False  # Enable MA confirmation
     confirm_ma_period: int = 55  # Confirmation MA period
+    strategy_type: str = "MA"  # MA or BB (Bollinger Bands)
+    bb_std_dev: float = 2.0  # Bollinger Bands standard deviation multiplier
 
     def to_dict(self):
         return asdict(self)
@@ -99,6 +101,13 @@ class ThresholdCache:
     confirm_ma_value: Optional[float] = None
     confirm_ma_direction: Optional[str] = None  # "RISING", "FALLING", "FLAT"
     confirm_ma_ok: bool = True  # Whether confirmation condition is met
+    
+    # Bollinger Bands
+    strategy_type: str = "MA"  # MA or BB
+    bb_std_dev: float = 2.0
+    bb_upper: Optional[float] = None
+    bb_lower: Optional[float] = None
+    bb_middle: Optional[float] = None  # Same as MA
 
 
 @dataclass
@@ -179,6 +188,20 @@ class StrategyEngine:
             result[i] = sum(closes[i - period + 1:i + 1]) / period
         return result
 
+    def calculate_std(self, df, period: int):
+        """Calculate Standard Deviation. Works with pandas DataFrame or list of dicts."""
+        if HAS_PANDAS and hasattr(df, 'rolling'):
+            return df["close"].rolling(window=period).std()
+        # Fallback: plain Python
+        closes = [row["close"] for row in df] if isinstance(df, list) else list(df["close"])
+        result = [None] * len(closes)
+        for i in range(period - 1, len(closes)):
+            window = closes[i - period + 1:i + 1]
+            mean = sum(window) / period
+            variance = sum((x - mean) ** 2 for x in window) / period
+            result[i] = variance ** 0.5
+        return result
+
     # ─── Threshold Calculation (hourly) ───
 
     def calculate_thresholds(self, watch_id: str, df, watch: WatchItem) -> Optional[ThresholdCache]:
@@ -214,24 +237,58 @@ class StrategyEngine:
 
         ma_rising = current_ma > prev_ma
         ma_falling = current_ma < prev_ma
+        
+        # Calculate Bollinger Bands if BB strategy
+        bb_upper = None
+        bb_lower = None
+        bb_middle = current_ma
+        current_std = 0.0
+        
+        if watch.strategy_type == "BB":
+            std = self.calculate_std(df, watch.ma_period)
+            if HAS_PANDAS and hasattr(std, 'iloc'):
+                if not pd.isna(std.iloc[-1]):
+                    current_std = float(std.iloc[-1])
+            else:
+                if std[-1] is not None:
+                    current_std = float(std[-1])
+            
+            bb_upper = current_ma + watch.bb_std_dev * current_std
+            bb_lower = current_ma - watch.bb_std_dev * current_std
 
-        # Determine trigger zone
+        # Determine trigger zone based on strategy type
         trigger_low = 0.0
         trigger_high = 0.0
         signal_type = None
         buy_zone = None
         sell_zone = None
 
-        if ma_rising:
-            trigger_low = current_ma
-            trigger_high = current_ma + watch.n_points
-            signal_type = "BUY"
-            buy_zone = f"{round(current_ma, 2)} ~ {round(current_ma + watch.n_points, 2)}"
-        elif ma_falling:
-            trigger_low = current_ma - watch.n_points
-            trigger_high = current_ma
-            signal_type = "SELL"
-            sell_zone = f"{round(current_ma - watch.n_points, 2)} ~ {round(current_ma, 2)}"
+        if watch.strategy_type == "MA":
+            # MA Strategy: price within N points of MA
+            if ma_rising:
+                trigger_low = current_ma
+                trigger_high = current_ma + watch.n_points
+                signal_type = "BUY"
+                buy_zone = f"{round(current_ma, 2)} ~ {round(current_ma + watch.n_points, 2)}"
+            elif ma_falling:
+                trigger_low = current_ma - watch.n_points
+                trigger_high = current_ma
+                signal_type = "SELL"
+                sell_zone = f"{round(current_ma - watch.n_points, 2)} ~ {round(current_ma, 2)}"
+        else:
+            # BB Strategy: price touches upper/lower band
+            # LONG: trigger when price <= lower band
+            # SHORT: trigger when price >= upper band
+            if watch.direction == "LONG" and bb_lower:
+                trigger_low = bb_lower - watch.n_points  # Some buffer below
+                trigger_high = bb_lower
+                signal_type = "BUY"
+                buy_zone = f"≤ {round(bb_lower, 2)}"
+            elif watch.direction == "SHORT" and bb_upper:
+                trigger_low = bb_upper
+                trigger_high = bb_upper + watch.n_points  # Some buffer above
+                signal_type = "SELL"
+                sell_zone = f"≥ {round(bb_upper, 2)}"
 
         ma_direction = "RISING" if ma_rising else ("FALLING" if ma_falling else "FLAT")
 
@@ -296,6 +353,11 @@ class StrategyEngine:
             confirm_ma_value=confirm_ma_value,
             confirm_ma_direction=confirm_ma_direction,
             confirm_ma_ok=confirm_ma_ok,
+            strategy_type=watch.strategy_type,
+            bb_std_dev=watch.bb_std_dev,
+            bb_upper=round(bb_upper, 4) if bb_upper else None,
+            bb_lower=round(bb_lower, 4) if bb_lower else None,
+            bb_middle=round(bb_middle, 4) if bb_middle else None,
         )
 
         self._thresholds[watch_id] = cache
@@ -369,29 +431,56 @@ class StrategyEngine:
             realtime_ma = cache.ma_value  # Fallback to cached MA
             prev_ma = cache.prev_ma
         
-        # Determine real-time MA direction and trigger zone
+        # Determine real-time MA direction
         ma_rising = realtime_ma > prev_ma
         ma_falling = realtime_ma < prev_ma
+        ma_direction = "RISING" if ma_rising else ("FALLING" if ma_falling else "FLAT")
         
+        # Calculate real-time Bollinger Bands if BB strategy
+        bb_upper = cache.bb_upper
+        bb_lower = cache.bb_lower
+        bb_middle = realtime_ma
+        
+        if cache.strategy_type == "BB" and cache.hist_closes:
+            # Calculate real-time standard deviation
+            all_closes = cache.hist_closes + [price]
+            mean = sum(all_closes) / len(all_closes)
+            variance = sum((x - mean) ** 2 for x in all_closes) / len(all_closes)
+            realtime_std = variance ** 0.5
+            bb_upper = realtime_ma + cache.bb_std_dev * realtime_std
+            bb_lower = realtime_ma - cache.bb_std_dev * realtime_std
+        
+        # Determine trigger zone based on strategy type
         trigger_low = 0.0
         trigger_high = 0.0
         signal_type = None
-        ma_direction = "FLAT"
         buy_zone = None
         sell_zone = None
         
-        if ma_rising:
-            trigger_low = realtime_ma
-            trigger_high = realtime_ma + watch.n_points
-            signal_type = "BUY"
-            ma_direction = "RISING"
-            buy_zone = f"{round(realtime_ma, 2)} ~ {round(realtime_ma + watch.n_points, 2)}"
-        elif ma_falling:
-            trigger_low = realtime_ma - watch.n_points
-            trigger_high = realtime_ma
-            signal_type = "SELL"
-            ma_direction = "FALLING"
-            sell_zone = f"{round(realtime_ma - watch.n_points, 2)} ~ {round(realtime_ma, 2)}"
+        if cache.strategy_type == "MA":
+            # MA Strategy: price within N points of MA (only when MA direction matches)
+            if ma_rising:
+                trigger_low = realtime_ma
+                trigger_high = realtime_ma + watch.n_points
+                signal_type = "BUY"
+                buy_zone = f"{round(realtime_ma, 2)} ~ {round(realtime_ma + watch.n_points, 2)}"
+            elif ma_falling:
+                trigger_low = realtime_ma - watch.n_points
+                trigger_high = realtime_ma
+                signal_type = "SELL"
+                sell_zone = f"{round(realtime_ma - watch.n_points, 2)} ~ {round(realtime_ma, 2)}"
+        else:
+            # BB Strategy: price touches upper/lower band
+            if watch.direction == "LONG" and bb_lower:
+                trigger_low = bb_lower - watch.n_points
+                trigger_high = bb_lower
+                signal_type = "BUY"
+                buy_zone = f"≤ {round(bb_lower, 2)}"
+            elif watch.direction == "SHORT" and bb_upper:
+                trigger_low = bb_upper
+                trigger_high = bb_upper + watch.n_points
+                signal_type = "SELL"
+                sell_zone = f"≥ {round(bb_upper, 2)}"
         
         # Calculate real-time confirmation MA if enabled
         confirm_ma_value = cache.confirm_ma_value
@@ -436,6 +525,11 @@ class StrategyEngine:
             "confirm_ma_value": confirm_ma_value,
             "confirm_ma_direction": confirm_ma_direction,
             "confirm_ma_ok": confirm_ma_ok,
+            # Bollinger Bands info
+            "strategy_type": cache.strategy_type,
+            "bb_upper": round(bb_upper, 4) if bb_upper else None,
+            "bb_lower": round(bb_lower, 4) if bb_lower else None,
+            "bb_middle": round(bb_middle, 4) if bb_middle else None,
         }
 
         cache.last_price = price
@@ -449,8 +543,8 @@ class StrategyEngine:
         # Check if price is in trigger zone
         in_zone = trigger_low <= price <= trigger_high
         
-        # Check confirmation MA condition (if enabled)
-        if not confirm_ma_ok:
+        # Check confirmation MA condition (if enabled, only for MA strategy)
+        if cache.strategy_type == "MA" and not confirm_ma_ok:
             # Confirmation MA direction doesn't match — don't trigger
             return None
 

@@ -12,7 +12,9 @@
       "contract_month": "202603",
       "direction": "LONG",
       "confirm_ma_enabled": false,
-      "confirm_ma_period": 55
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
     },
     {
       "id": "f2bca6ac",
@@ -26,7 +28,9 @@
       "contract_month": "202603",
       "direction": "LONG",
       "confirm_ma_enabled": true,
-      "confirm_ma_period": 13
+      "confirm_ma_period": 13,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
     },
     {
       "id": "604bd756",
@@ -40,7 +44,9 @@
       "contract_month": "202604",
       "direction": "LONG",
       "confirm_ma_enabled": false,
-      "confirm_ma_period": 55
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
     },
     {
       "id": "4133c04b",
@@ -54,7 +60,9 @@
       "contract_month": "202603",
       "direction": "LONG",
       "confirm_ma_enabled": false,
-      "confirm_ma_period": 55
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
     },
     {
       "id": "bd4b1aaa",
@@ -68,8 +76,90 @@
       "contract_month": "202603",
       "direction": "LONG",
       "confirm_ma_enabled": false,
-      "confirm_ma_period": 55
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
+    },
+    {
+      "id": "c29fbc5e",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
+    },
+    {
+      "id": "0c6d2a8b",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
+    },
+    {
+      "id": "aeaea40a",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "BB",
+      "bb_std_dev": 2.0
+    },
+    {
+      "id": "238f829f",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
+    },
+    {
+      "id": "bfdade18",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0
     }
   ],
-  "saved_at": "2026-02-04T23:51:42.029911"
+  "saved_at": "2026-02-05T00:52:03.029071"
 }

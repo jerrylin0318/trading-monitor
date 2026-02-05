@@ -375,6 +375,7 @@ async function addWatch() {
     }
     
     const confirmMaEnabled = document.getElementById('w-confirm-ma-enabled').checked;
+    const strategyType = document.getElementById('w-strategy-type').value;
     const item = {
         symbol,
         sec_type: secType,
@@ -386,6 +387,8 @@ async function addWatch() {
         contract_month: secType === 'FUT' ? document.getElementById('w-contract').value : null,
         confirm_ma_enabled: confirmMaEnabled,
         confirm_ma_period: confirmMaEnabled ? parseInt(document.getElementById('w-confirm-ma-period').value) || 55 : 55,
+        strategy_type: strategyType,
+        bb_std_dev: strategyType === 'BB' ? parseFloat(document.getElementById('w-bb-std-dev').value) || 2 : 2,
         enabled: true,
     };
     const res = await api('/api/watch', 'POST', item);
@@ -521,21 +524,42 @@ function renderWatchList() {
         const dist = data.distance_from_ma != null ? data.distance_from_ma.toFixed(2) : '--';
         const stratClass = w.direction === 'LONG' ? 'BUY' : 'SELL';
         const stratLabel = w.direction === 'LONG' ? '📈 做多' : '📉 做空';
+        const strategyType = w.strategy_type || data.strategy_type || 'MA';
+        const strategyLabel = strategyType === 'BB' ? '布林帶' : 'MA';
         
         // 觸發區 + 有效性判斷
-        const maRight = (w.direction === 'LONG' && dir === 'RISING') || (w.direction === 'SHORT' && dir === 'FALLING');
         let zone = '--';
         let zoneActive = false;
-        if (data.ma_value) {
-            if (w.direction === 'LONG') {
-                zone = `${data.ma_value.toFixed(2)} ~ ${(data.ma_value + w.n_points).toFixed(2)}`;
-                zoneActive = maRight && data.current_price >= data.ma_value && data.current_price <= data.ma_value + w.n_points;
-            } else {
-                zone = `${(data.ma_value - w.n_points).toFixed(2)} ~ ${data.ma_value.toFixed(2)}`;
-                zoneActive = maRight && data.current_price >= data.ma_value - w.n_points && data.current_price <= data.ma_value;
+        let zoneReady = false;
+        
+        if (strategyType === 'BB') {
+            // Bollinger Bands: trigger on upper/lower band touch
+            const bbUpper = data.bb_upper;
+            const bbLower = data.bb_lower;
+            if (w.direction === 'LONG' && bbLower) {
+                zone = `≤ ${bbLower.toFixed(2)} (下軌)`;
+                zoneActive = data.current_price <= bbLower;
+                zoneReady = true;  // BB always ready (no direction requirement)
+            } else if (w.direction === 'SHORT' && bbUpper) {
+                zone = `≥ ${bbUpper.toFixed(2)} (上軌)`;
+                zoneActive = data.current_price >= bbUpper;
+                zoneReady = true;
+            }
+        } else {
+            // MA Strategy: price within N points of MA when direction matches
+            const maRight = (w.direction === 'LONG' && dir === 'RISING') || (w.direction === 'SHORT' && dir === 'FALLING');
+            zoneReady = maRight;
+            if (data.ma_value) {
+                if (w.direction === 'LONG') {
+                    zone = `${data.ma_value.toFixed(2)} ~ ${(data.ma_value + w.n_points).toFixed(2)}`;
+                    zoneActive = maRight && data.current_price >= data.ma_value && data.current_price <= data.ma_value + w.n_points;
+                } else {
+                    zone = `${(data.ma_value - w.n_points).toFixed(2)} ~ ${data.ma_value.toFixed(2)}`;
+                    zoneActive = maRight && data.current_price >= data.ma_value - w.n_points && data.current_price <= data.ma_value;
+                }
             }
         }
-        const zoneStatus = !data.ma_value ? '' : zoneActive ? '🟢' : maRight ? '🟡' : '⚪';
+        const zoneStatus = !data.ma_value ? '' : zoneActive ? '🟢' : zoneReady ? '🟡' : '⚪';
         
         // Confirmation MA status
         const confirmEnabled = w.confirm_ma_enabled || data.confirm_ma_enabled;
@@ -563,17 +587,17 @@ function renderWatchList() {
                 </div>
             </div>
             <div class="watch-details">
+                <span style="color:var(--blue)">${strategyLabel}</span>
                 <span>MA${w.ma_period}</span>
-                <span>N=${w.n_points}</span>
-                ${confirmEnabled ? `<span style="color:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmDirLabel}${confirmStatus}</span>` : ''}
+                ${strategyType === 'BB' ? `<span>σ=${w.bb_std_dev || 2}</span>` : `<span>N=${w.n_points}</span>`}
+                ${confirmEnabled && strategyType === 'MA' ? `<span style="color:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmDirLabel}${confirmStatus}</span>` : ''}
                 <span>價格: ${price}</span>
-                <span>MA: ${ma}</span>
-                <span>距離: ${dist}</span>
+                ${strategyType === 'BB' ? `<span>上: ${data.bb_upper ? data.bb_upper.toFixed(2) : '--'}</span><span>下: ${data.bb_lower ? data.bb_lower.toFixed(2) : '--'}</span>` : `<span>MA: ${ma}</span><span>距離: ${dist}</span>`}
             </div>
             <div class="watch-bottom-row">
                 <div class="watch-ma-info">
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
-                    <span class="trigger-zone ${zoneActive ? 'active' : maRight ? 'ready' : ''}" title="${maRight ? (zoneActive ? '條件滿足！' : 'MA方向正確，等待價格進入') : 'MA方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
+                    <span class="trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}" title="${zoneReady ? (zoneActive ? '條件滿足！' : '方向正確，等待價格進入') : '方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
                 </div>
                 <div style="display:flex;gap:4px;">
                     <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">
@@ -1483,6 +1507,27 @@ window.addEventListener('load', async () => {
         showLogin();
     }
 });
+
+function updateStrategyFields() {
+    const strategyType = document.getElementById('w-strategy-type').value;
+    const nPointsGroup = document.getElementById('w-n-points-group');
+    const bbStdGroup = document.getElementById('w-bb-std-group');
+    const confirmMaGroup = document.getElementById('w-confirm-ma-group');
+    
+    if (strategyType === 'BB') {
+        // Bollinger Bands: show std dev, hide confirm MA (BB doesn't need MA direction)
+        bbStdGroup.style.display = 'block';
+        confirmMaGroup.style.display = 'none';
+        const label = document.querySelector('#w-n-points-group label');
+        if (label) label.textContent = '緩衝點數';
+    } else {
+        // MA Strategy: hide std dev, show confirm MA
+        bbStdGroup.style.display = 'none';
+        confirmMaGroup.style.display = 'block';
+        const label = document.querySelector('#w-n-points-group label');
+        if (label) label.textContent = 'N 點';
+    }
+}
 
 function updateContractDropdown() {
     const secType = document.getElementById('w-sectype').value;
