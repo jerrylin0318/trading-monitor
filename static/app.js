@@ -905,6 +905,15 @@ async function renderChart(watchId) {
         });
         maSeries.setData(chartData.ma);
         chartSeries[watchId].ma = maSeries;
+        
+        // Add today's MA point from real-time data
+        if (data?.ma_value) {
+            const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+            const lastMATime = chartData.ma[chartData.ma.length - 1]?.time || 0;
+            if (lastMATime < todayTime) {
+                maSeries.update({ time: todayTime, value: data.ma_value });
+            }
+        }
     }
     
     // BB upper/lower bands
@@ -926,6 +935,16 @@ async function renderChart(watchId) {
         });
         bbLowerSeries.setData(chartData.bb_lower);
         chartSeries[watchId].bbLower = bbLowerSeries;
+        
+        // Add today's BB points from real-time data
+        if (data?.bb_upper && data?.bb_lower) {
+            const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+            const lastBBTime = chartData.bb_upper[chartData.bb_upper.length - 1]?.time || 0;
+            if (lastBBTime < todayTime) {
+                bbUpperSeries.update({ time: todayTime, value: data.bb_upper });
+                bbLowerSeries.update({ time: todayTime, value: data.bb_lower });
+            }
+        }
     }
     
     // Confirm MA line (if enabled)
