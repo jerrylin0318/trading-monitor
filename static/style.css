@@ -341,8 +341,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .opt-inline-header {
     display: grid;
-    grid-template-columns: 24px 70px 1fr 65px 55px 45px;
-    gap: 4px;
+    grid-template-columns: 24px 65px 1fr 65px 50px 36px 50px;
+    gap: 3px;
     font-size: 10px;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -352,8 +352,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .opt-inline-row {
     display: grid;
-    grid-template-columns: 24px 70px 1fr 65px 55px 45px;
-    gap: 4px;
+    grid-template-columns: 24px 65px 1fr 65px 50px 36px 50px;
+    gap: 3px;
     align-items: center;
     padding: 4px 0;
     font-size: 12px;
@@ -364,13 +364,15 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .opt-inline-name { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opt-inline-ba { color: var(--text-muted); font-size: 11px; text-align: right; }
 .opt-inline-last { font-weight: 600; text-align: right; }
+.opt-inline-vol { font-size: 10px; color: var(--text-muted); text-align: right; }
 .opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
 
 @media (max-width: 600px) {
-    .opt-inline-header { grid-template-columns: 22px 60px 1fr 55px 45px; font-size: 9px; }
-    .opt-inline-row { grid-template-columns: 22px 60px 1fr 55px 45px; }
+    .opt-inline-header { grid-template-columns: 22px 55px 1fr 50px 40px 40px; font-size: 9px; }
+    .opt-inline-row { grid-template-columns: 22px 55px 1fr 50px 40px 40px; }
     .opt-inline-ba { display: none; }
     .opt-inline-header span:nth-child(4) { display: none; }
+    .opt-inline-vol { font-size: 9px; }
 }
 
 /* Exit strategy config */

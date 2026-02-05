@@ -94,6 +94,17 @@ function handleMessage(msg) {
             // Play sound
             try { new Audio('data:audio/wav;base64,UklGRl9vT19teleQBAAAAAABAAEARKwAAIhYAQACABAAAABkYXRhQW9PbwA=').play(); } catch(e) {}
             break;
+        case 'trade_update': {
+            const t = msg.trade;
+            if (t) {
+                const emoji = t.status === 'closed' ? '✅' : t.status === 'exiting' ? '⏳' : '📊';
+                log(`${emoji} 交易 ${t.symbol} [${t.id}]: ${t.status}`, t.status === 'closed' ? 'success' : 'info');
+                if (t.status === 'closed' || t.status === 'exiting') {
+                    showToast(`${t.symbol} 已平倉`, 'sell');
+                }
+            }
+            break;
+        }
         case 'error':
             log(msg.message, 'error');
             break;
@@ -497,24 +508,29 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     const renderSide = (opts, label, color) => {
         if (!opts.length) return '';
         let rows = opts.map((o, i) => {
-            const optKey = `${o.right}-${i}`;
+            const optKey = `${o.conId || o.right + '-' + i}`;
             const optSel = sel[optKey] || {};
             const checked = optSel.checked ? 'checked' : '';
             const amt = optSel.amount || 1000;
             return `
             <div class="opt-inline-row">
-                <input type="checkbox" id="opt-${watch.id}-${o.right}-${i}" class="opt-check" data-ask="${o.ask}" data-key="${optKey}" ${checked} onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
+                <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
+                    data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
+                    data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
+                    data-key="${optKey}" ${checked}
+                    onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
                 <span class="opt-inline-strike">${o.strike}</span>
                 <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
-                <span class="opt-inline-ba">${o.bid?.toFixed(2)}/${o.ask?.toFixed(2)}</span>
+                <span class="opt-inline-ba">${o.bid?.toFixed(2) ?? '--'}/${o.ask?.toFixed(2) ?? '--'}</span>
                 <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
+                <span class="opt-inline-vol">${o.volume || '--'}</span>
                 <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
             </div>`;
         }).join('');
         return `<div class="opt-inline-group">
             <div class="opt-inline-label" style="color:${color}">${label}</div>
             <div class="opt-inline-header">
-                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>金額$</span>
+                <span></span><span>履約價</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>金額$</span>
             </div>
             ${rows}
         </div>`;
@@ -626,58 +642,114 @@ function saveExitVal(watchId, key, value) {
     state.optSelections[watchId].exit[key] = value;
 }
 
-function placeOrder(watchId) {
+async function placeOrder(watchId) {
     const w = state.watchList.find(x => x.id === watchId);
     if (!w) return;
 
     const sel = state.optSelections[watchId] || {};
     const ex = sel.exit || {};
 
-    // Collect checked options from saved state
-    const checkedOpts = Object.entries(sel).filter(([k, v]) => k !== 'exit' && v.checked);
-    if (checkedOpts.length === 0) {
-        log('請先勾選要交易的商品', 'warning');
+    // Collect checked options from DOM (has latest data attributes)
+    const checkboxes = document.querySelectorAll(`input.opt-check[id^="opt-${watchId}-"]:checked`);
+    if (checkboxes.length === 0) {
+        log('請先勾選要交易的選擇權', 'warning');
         return;
     }
 
-    // Collect exit strategies from saved state
-    const exitStrategies = [];
-    if (ex.profit) {
-        exitStrategies.push(`限價止盈: 成交價${ex.profitDir || '+'}${ex.profitPts || 0.5}點`);
-    }
-    if (ex.time) {
-        exitStrategies.push(`時間平倉: ${ex.timeVal || '15:55'}`);
-    }
-    if (ex.ma) {
-        const cond = ex.maCond === 'below' ? '低於' : '高於';
-        exitStrategies.push(`均線平倉: 標的${cond}MA${ex.maDir || '+'}${ex.maPts || 5}點`);
-    }
+    // Build order items from DOM
+    const items = [];
+    const displayItems = [];
+    checkboxes.forEach(chk => {
+        const conId = parseInt(chk.dataset.conid);
+        const ask = parseFloat(chk.dataset.ask);
+        const strike = chk.dataset.strike;
+        const right = chk.dataset.right;
+        const expiry = chk.dataset.expiry;
+        const key = chk.dataset.key;
+        const amtInput = chk.closest('.opt-inline-row')?.querySelector('.opt-inline-amt');
+        const amount = parseFloat(amtInput?.value) || 1000;
 
-    // Calculate quantities from amounts
-    const orders = [];
-    checkedOpts.forEach(([key, opt]) => {
-        const amount = opt.amount || 1000;
-        // Get ask from DOM as it updates
-        const chk = document.querySelector(`input[data-key="${key}"]`);
-        const ask = parseFloat(chk?.dataset.ask) || 1;
-        const isStock = key === 'stk';
-        const qty = isStock ? Math.floor(amount / ask) : Math.floor(amount / (ask * 100));
-        orders.push({ key, amount, ask, qty: Math.max(qty, 1) });
+        if (key === 'stk') return; // Skip underlying for now (options only)
+        if (!conId || !ask || ask <= 0) return;
+
+        const qty = Math.max(1, Math.floor(amount / ask / 100));
+        items.push({ conId, ask, amount, right, strike: parseFloat(strike), expiry });
+        displayItems.push({ strike, right, expiry: expiry?.slice(4), ask, qty, amount });
     });
 
-    // Log the order (demo mode)
-    log(`📥 下單 ${w.symbol}:`, 'success');
-    orders.forEach(o => {
-        const label = o.key === 'stk' ? '標的' : o.key;
-        log(`   ${label} | 金額$${o.amount} ÷ Ask$${o.ask} = ${o.qty}口 市價買入`, 'info');
+    if (items.length === 0) {
+        log('無有效選擇權可下單（需有 Ask 價格）', 'warning');
+        return;
+    }
+
+    // Build exit strategies
+    const exitConfig = {
+        limit: {
+            enabled: !!ex.profit,
+            dir: ex.profitDir || '+',
+            pts: parseFloat(ex.profitPts) || 0.5,
+        },
+        time: {
+            enabled: !!ex.time,
+            value: ex.timeVal || '15:55',
+        },
+        ma: {
+            enabled: !!ex.ma,
+            cond: ex.maCond || 'above',
+            dir: ex.maDir || '+',
+            pts: parseFloat(ex.maPts) || 5,
+        },
+    };
+
+    // Show confirmation
+    const exitDesc = [];
+    if (exitConfig.limit.enabled) exitDesc.push(`限價止盈 ${exitConfig.limit.dir}${exitConfig.limit.pts}點`);
+    if (exitConfig.time.enabled) exitDesc.push(`時間平倉 ${exitConfig.time.value}`);
+    if (exitConfig.ma.enabled) exitDesc.push(`均線平倉 ${exitConfig.ma.cond === 'above' ? '高於' : '低於'}MA${exitConfig.ma.dir}${exitConfig.ma.pts}點`);
+
+    let confirmMsg = `確認下單 ${w.symbol}？\n\n`;
+    displayItems.forEach(d => {
+        confirmMsg += `${d.right} ${d.strike} (${d.expiry}) | Ask $${d.ask} × ${d.qty}口 = $${(d.ask * d.qty * 100).toFixed(0)}\n`;
     });
-    if (exitStrategies.length) {
-        log(`   平倉策略: ${exitStrategies.join(', ')}`, 'info');
+    if (exitDesc.length) {
+        confirmMsg += `\n平倉策略: ${exitDesc.join(' / ')}`;
     } else {
-        log(`   ⚠️ 未設定平倉策略`, 'warning');
+        confirmMsg += `\n⚠️ 未設定平倉策略`;
     }
 
-    showToast(`${w.symbol} 模擬下單成功`, 'buy');
+    if (!confirm(confirmMsg)) {
+        log('下單已取消', 'info');
+        return;
+    }
+
+    // Send order to backend
+    log(`📥 正在下單 ${w.symbol}...`, 'info');
+    try {
+        const res = await api('/api/order', 'POST', {
+            watch_id: watchId,
+            items,
+            exit: exitConfig,
+        });
+
+        if (res?.ok) {
+            log(`✅ ${w.symbol} 下單成功！Trade ID: ${res.trade_id}`, 'success');
+            (res.orders || []).forEach(o => {
+                const status = o.status || 'Unknown';
+                const fill = o.avgFillPrice ? `成交 $${o.avgFillPrice}` : '等待成交';
+                log(`   Order #${o.orderId}: ${status} — ${fill} (${o.qty_requested}口)`, 'info');
+                if (o.exit_limit_order) {
+                    log(`   📤 限價止盈已掛: Order #${o.exit_limit_order.orderId}`, 'info');
+                }
+            });
+            showToast(`${w.symbol} 下單成功`, 'buy');
+        } else {
+            log(`❌ 下單失敗: ${res?.error || '未知錯誤'}`, 'error');
+            showToast(`${w.symbol} 下單失敗`, 'sell');
+        }
+    } catch (e) {
+        log(`❌ 下單錯誤: ${e.message}`, 'error');
+        showToast('下單失敗', 'sell');
+    }
 }
 
 function renderSignals() {
