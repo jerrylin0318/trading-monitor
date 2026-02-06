@@ -154,6 +154,23 @@ _options_cache: Dict[str, Dict] = {}  # watch_id -> {"call": [...], "put": [...]
 _active_trades: Dict[str, Dict] = {}  # trade_id -> trade dict
 
 
+async def _close_trade_and_reset(trade: Dict, reason: str = ""):
+    """Close a trade and reset signal_fired so the watch can trigger again."""
+    trade["status"] = "closed"
+    watch_id = trade.get("watch_id")
+    if watch_id:
+        threshold = engine._thresholds.get(watch_id)
+        if threshold:
+            threshold.signal_fired = False
+            logger.info("Trade closed%s — reset signal for watch %s, will check for new signals",
+                       f" ({reason})" if reason else "", watch_id)
+        # Update frontend
+        data = engine.latest_data.get(watch_id, {})
+        data["signal_fired"] = False
+        await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+    await broadcast({"type": "trade_update", "trade": trade})
+
+
 async def _init_new_watch(watch):
     """Initialize a newly added watch item during live monitoring.
 
@@ -411,8 +428,7 @@ async def monitor_loop():
                                         order_info["exit_order"] = close_result
                                     except Exception as e:
                                         logger.error("Time exit order failed: %s", e)
-                            trade["status"] = "closed"
-                            await broadcast({"type": "trade_update", "trade": trade})
+                            await _close_trade_and_reset(trade, "時間平倉")
 
                 # MA-based exit
                 ma_exit = exit_cfg.get("ma", {})
@@ -446,8 +462,7 @@ async def monitor_loop():
                                         order_info["exit_order"] = close_result
                                     except Exception as e:
                                         logger.error("MA exit order failed: %s", e)
-                            trade["status"] = "closed"
-                            await broadcast({"type": "trade_update", "trade": trade})
+                            await _close_trade_and_reset(trade, "均線平倉")
 
                 # BB-based exit (for Bollinger Bands strategy)
                 bb_exit = exit_cfg.get("bb", {})
@@ -504,8 +519,7 @@ async def monitor_loop():
                                         order_info["exit_order"] = close_result
                                     except Exception as e:
                                         logger.error("BB exit order failed: %s", e)
-                            trade["status"] = "closed"
-                            await broadcast({"type": "trade_update", "trade": trade})
+                            await _close_trade_and_reset(trade, "布林帶平倉")
 
             # ── Hourly recalculation ──
             now = time.time()
@@ -1151,7 +1165,7 @@ async def close_trade(trade_id: str):
         return {"error": f"Trade already {trade['status']}"}
 
     if DEMO_MODE:
-        trade["status"] = "closed"
+        await _close_trade_and_reset(trade, "手動平倉")
         return {"ok": True, "demo": True}
 
     trade["status"] = "exiting"
@@ -1171,8 +1185,7 @@ async def close_trade(trade_id: str):
                 logger.error("Close order failed for trade %s: %s", trade_id, e)
                 close_results.append({"error": str(e)})
 
-    trade["status"] = "closed"
-    await broadcast({"type": "trade_update", "trade": trade})
+    await _close_trade_and_reset(trade, "手動平倉")
     logger.info("Trade %s manually closed", trade_id)
     return {"ok": True, "trade_id": trade_id, "close_results": close_results}
 

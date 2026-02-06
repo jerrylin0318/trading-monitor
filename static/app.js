@@ -620,7 +620,7 @@ function renderWatchList() {
                 <div class="watch-ma-info">
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
                     <span class="trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}" title="${zoneReady ? (zoneActive ? '條件滿足！' : '方向正確，等待價格進入') : '方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
-                    ${data.signal_fired ? `<span class="signal-fired" title="已觸發，點擊重置">🔔 <button class="btn btn-sm" onclick="resetSignal('${w.id}')" style="padding:1px 5px;font-size:10px;">重置</button></span>` : ''}
+                    ${data.signal_fired ? `<span class="signal-fired" title="已觸發，平倉後自動重置">🔔 <button class="btn btn-sm" onclick="resetSignal('${w.id}')" style="padding:1px 5px;font-size:10px;" title="手動重置">↺</button></span>` : ''}
                 </div>
                 <div style="display:flex;gap:4px;">
                     <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">
