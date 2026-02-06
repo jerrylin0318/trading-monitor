@@ -507,12 +507,14 @@ function renderPositions() {
     }
     let html = `<table>
         <thead><tr>
-            <th>標的</th><th>類型</th><th>數量</th><th>均價</th><th>市值</th><th>盈虧</th>
+            <th>標的</th><th>類型</th><th>數量</th><th>均價</th><th>市值</th><th>盈虧</th><th></th>
         </tr></thead><tbody>`;
     for (const p of state.positions) {
         const pnl = p.unrealizedPNL;
         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
         const name = p.right ? `${p.symbol} ${p.expiry} ${p.strike}${p.right}` : p.symbol;
+        const conId = p.conId || '';
+        const qty = Math.abs(p.position);
         html += `<tr>
             <td><strong>${name}</strong></td>
             <td>${p.secType}</td>
@@ -520,10 +522,31 @@ function renderPositions() {
             <td>${p.avgCost?.toFixed(2) || '--'}</td>
             <td>${p.marketValue?.toFixed(2) || '--'}</td>
             <td class="${pnlClass}">${pnl != null ? pnl.toFixed(2) : '--'}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="closePosition(${conId}, ${qty}, '${name}')" title="平倉">✕</button></td>
         </tr>`;
     }
     html += '</tbody></table>';
     container.innerHTML = html;
+}
+
+async function closePosition(conId, qty, name) {
+    if (!conId) {
+        log('無法平倉：缺少合約 ID', 'error');
+        return;
+    }
+    if (!confirm(`確認平倉 ${name}？\n數量: ${qty}`)) return;
+    
+    log(`正在平倉 ${name}...`, 'info');
+    try {
+        const res = await api('/api/position/close', 'POST', { conId, qty });
+        if (res?.ok) {
+            log(`${name} 已平倉`, 'success');
+        } else {
+            log(`平倉失敗: ${res?.error || '未知錯誤'}`, 'error');
+        }
+    } catch (e) {
+        log(`平倉失敗: ${e.message}`, 'error');
+    }
 }
 
 function renderWatchList() {

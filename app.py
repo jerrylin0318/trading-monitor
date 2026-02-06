@@ -707,6 +707,26 @@ async def get_positions():
     return await ib.get_positions()
 
 
+class ClosePositionRequest(BaseModel):
+    conId: int
+    qty: int
+
+
+@app.post("/api/position/close")
+async def close_position(req: ClosePositionRequest, authorized: bool = Depends(verify_token)):
+    """Close a position by selling the specified quantity."""
+    if DEMO_MODE:
+        return {"ok": True, "demo": True}
+    
+    try:
+        result = await ib.place_market_order(req.conId, "SELL", req.qty)
+        logger.info("Position closed: conId=%d, qty=%d, result=%s", req.conId, req.qty, result)
+        return {"ok": True, "order": result}
+    except Exception as e:
+        logger.error("Failed to close position: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 # --- Watch list ---
 @app.get("/api/watch")
 async def get_watch_list():
