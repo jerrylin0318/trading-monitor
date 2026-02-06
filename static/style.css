@@ -262,6 +262,11 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     opacity: 1;
     font-weight: 600;
 }
+.signal-fired {
+    color: var(--yellow);
+    font-size: 12px;
+    margin-left: 8px;
+}
 .watch-actions {
     display: flex;
     gap: 6px;

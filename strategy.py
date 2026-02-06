@@ -549,7 +549,7 @@ class StrategyEngine:
             return None
 
         if in_zone and not cache.signal_fired:
-            # 🔔 Signal fires!
+            # 🔔 Signal fires! (one-shot: won't fire again until manually reset)
             cache.signal_fired = True
             signal = Signal(
                 timestamp=datetime.now().isoformat(),
@@ -563,14 +563,12 @@ class StrategyEngine:
                 distance=abs(distance),
             )
             self.signals.append(signal)
-            logger.info("🔔 %s signal: %s @ %.2f (MA%.0f=%.2f, zone=[%.2f,%.2f])",
+            logger.info("🔔 %s signal: %s @ %.2f (MA%.0f=%.2f, zone=[%.2f,%.2f]) — 已停止檢查",
                         signal_type, watch.symbol, price,
                         cache.ma_period, realtime_ma,
                         trigger_low, trigger_high)
             return signal
-        elif not in_zone:
-            # Price left zone — reset so signal can fire again on re-entry
-            cache.signal_fired = False
+        # Signal already fired — don't check anymore (one-shot mode)
 
         return None
 

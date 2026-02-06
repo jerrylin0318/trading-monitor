@@ -760,6 +760,21 @@ async def delete_watch(watch_id: str):
     return {"ok": True}
 
 
+@app.post("/api/watch/{watch_id}/reset")
+async def reset_watch_signal(watch_id: str, authorized: bool = Depends(verify_token)):
+    """Reset signal_fired flag so the watch can trigger again."""
+    threshold = engine._thresholds.get(watch_id)
+    if not threshold:
+        raise HTTPException(status_code=404, detail="Watch not found")
+    threshold.signal_fired = False
+    logger.info("Reset signal for watch %s — will check for signals again", watch_id)
+    # Broadcast updated data
+    data = engine.latest_data.get(watch_id, {})
+    data["signal_fired"] = False
+    await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+    return {"ok": True, "message": "信號已重置，將重新檢查觸發"}
+
+
 # --- Strategy control ---
 @app.post("/api/start")
 async def start_monitoring():

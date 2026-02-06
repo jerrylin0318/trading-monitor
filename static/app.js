@@ -417,6 +417,19 @@ async function removeWatch(id) {
     log('已移除觀察標的', 'info');
 }
 
+async function resetSignal(id) {
+    try {
+        const res = await api(`/api/watch/${id}/reset`, 'POST');
+        if (res?.ok) {
+            log(`已重置信號，將重新檢查觸發`, 'success');
+        } else {
+            log(`重置失敗: ${res?.error || '未知錯誤'}`, 'error');
+        }
+    } catch (e) {
+        log(`重置失敗: ${e.message}`, 'error');
+    }
+}
+
 async function toggleWatch(id) {
     const item = state.watchList.find(w => w.id === id);
     if (!item) return;
@@ -607,6 +620,7 @@ function renderWatchList() {
                 <div class="watch-ma-info">
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
                     <span class="trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}" title="${zoneReady ? (zoneActive ? '條件滿足！' : '方向正確，等待價格進入') : '方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
+                    ${data.signal_fired ? `<span class="signal-fired" title="已觸發，點擊重置">🔔 <button class="btn btn-sm" onclick="resetSignal('${w.id}')" style="padding:1px 5px;font-size:10px;">重置</button></span>` : ''}
                 </div>
                 <div style="display:flex;gap:4px;">
                     <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">
