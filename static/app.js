@@ -1151,6 +1151,9 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
                 </select>
                 <input type="number" id="exit-${watch.id}-bb-pts" value="${ex.bbPts || 0}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','bbPts',this.value)"> 點</span>
             </div>
+            <div class="exit-option" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">
+                <label><input type="checkbox" id="exit-${watch.id}-loop" ${ex.loop !== false ? 'checked' : ''} onchange="saveExitSel('${watch.id}','loop',this.checked)"> 🔄 平倉後繼續監控（閉環）</label>
+            </div>
             <div class="exit-actions">
                 <button class="btn btn-sm btn-success" onclick="placeOrder('${watch.id}')">📥 市價下單</button>
             </div>
@@ -1281,6 +1284,7 @@ async function placeOrder(watchId) {
             dir: ex.bbDir || '+',             // '+' or '-'
             pts: parseFloat(ex.bbPts) || 0,
         },
+        loop: ex.loop !== false,  // 平倉後繼續監控（預設開啟）
     };
 
     // Show confirmation

@@ -155,19 +155,25 @@ _active_trades: Dict[str, Dict] = {}  # trade_id -> trade dict
 
 
 async def _close_trade_and_reset(trade: Dict, reason: str = ""):
-    """Close a trade and reset signal_fired so the watch can trigger again."""
+    """Close a trade and optionally reset signal_fired based on loop setting."""
     trade["status"] = "closed"
     watch_id = trade.get("watch_id")
-    if watch_id:
+    exit_cfg = trade.get("exit", {})
+    loop_enabled = exit_cfg.get("loop", True)  # Default to True for backward compat
+    
+    if watch_id and loop_enabled:
         threshold = engine._thresholds.get(watch_id)
         if threshold:
             threshold.signal_fired = False
-            logger.info("Trade closed%s — reset signal for watch %s, will check for new signals",
+            logger.info("Trade closed%s — reset signal for watch %s (loop enabled), will check for new signals",
                        f" ({reason})" if reason else "", watch_id)
         # Update frontend
         data = engine.latest_data.get(watch_id, {})
         data["signal_fired"] = False
         await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
+    elif watch_id:
+        logger.info("Trade closed%s — watch %s stays paused (loop disabled)",
+                   f" ({reason})" if reason else "", watch_id)
     await broadcast({"type": "trade_update", "trade": trade})
 
 
