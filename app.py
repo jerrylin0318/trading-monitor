@@ -748,10 +748,15 @@ async def update_watch(watch_id: str, updates: WatchItemUpdate):
     watch = engine.watch_list.get(watch_id)
     now_enabled = watch.enabled if watch else False
 
-    # Handle pause → resume: re-initialize (subscribe + thresholds + options)
-    if not was_enabled and now_enabled and engine.running and not DEMO_MODE and ib and ib.connected:
-        logger.info("Watch %s (%s) resumed — re-initializing", watch_id, watch.symbol)
-        asyncio.create_task(_init_new_watch(watch))
+    # Handle pause → resume: re-initialize (subscribe + thresholds + options) + reset signal
+    if not was_enabled and now_enabled:
+        # Reset signal_fired so it can trigger again
+        threshold = engine._thresholds.get(watch_id)
+        if threshold:
+            threshold.signal_fired = False
+            logger.info("Watch %s (%s) resumed — signal reset", watch_id, watch.symbol)
+        if engine.running and not DEMO_MODE and ib and ib.connected:
+            asyncio.create_task(_init_new_watch(watch))
 
     # Handle resume → pause: unsubscribe streaming to save resources
     if was_enabled and not now_enabled and engine.running and not DEMO_MODE and ib:

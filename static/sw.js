@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trademon-v36';
+const CACHE_NAME = 'trademon-v37';
 const ASSETS = ['/', '/static/index.html', '/static/style.css', '/static/app.js', '/static/manifest.json'];
 
 self.addEventListener('install', e => {
