@@ -594,12 +594,27 @@ function renderWatchList() {
         const putOpts = data.options_put || [];
         const expanded = state.expandedWatch === w.id;
 
+        // Phase status
+        const signalFired = data.signal_fired;
+        let phaseStatus, phaseClass;
+        if (!w.enabled) {
+            phaseStatus = '⏸ 已停用';
+            phaseClass = 'phase-disabled';
+        } else if (signalFired) {
+            phaseStatus = '🔔 持倉中';
+            phaseClass = 'phase-holding';
+        } else {
+            phaseStatus = '🟡 監控中';
+            phaseClass = 'phase-watching';
+        }
+
         html += `
         <div class="watch-item ${w.enabled ? '' : 'disabled'}" data-watch-id="${w.id}">
             <div class="watch-top-row">
                 <div class="watch-symbol">
                     <span class="strategy-badge ${stratClass}">${stratLabel}</span>
                     ${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span>
+                    <span class="phase-badge ${phaseClass}">${phaseStatus}</span>
                 </div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
@@ -620,7 +635,6 @@ function renderWatchList() {
                 <div class="watch-ma-info">
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
                     <span class="trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}" title="${zoneReady ? (zoneActive ? '條件滿足！' : '方向正確，等待價格進入') : '方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
-                    ${data.signal_fired ? `<span class="signal-fired" title="已觸發，平倉後自動重置；或停用再啟用手動重置">🔔</span>` : ''}
                 </div>
                 <div style="display:flex;gap:4px;">
                     <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">
