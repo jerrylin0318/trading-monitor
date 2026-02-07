@@ -557,7 +557,8 @@ async def monitor_loop():
                 try:
                     account = await ib.get_account_summary()
                     positions = await ib.get_positions()
-                    await broadcast({"type": "account", "summary": account, "positions": positions, "connected": True})
+                    orders = await ib.get_open_orders()
+                    await broadcast({"type": "account", "summary": account, "positions": positions, "orders": orders, "connected": True})
                     last_account_time = now
                 except Exception as e:
                     logger.error("Account data error: %s", e)
@@ -707,20 +708,48 @@ async def get_positions():
     return await ib.get_positions()
 
 
+@app.get("/api/orders")
+async def get_open_orders():
+    """Get all open/pending orders."""
+    if DEMO_MODE:
+        return []
+    return await ib.get_open_orders()
+
+
+@app.delete("/api/orders/{order_id}")
+async def cancel_order(order_id: int):
+    """Cancel an order by orderId."""
+    if DEMO_MODE:
+        return {"ok": True, "demo": True}
+    try:
+        result = await ib.cancel_order(order_id)
+        logger.info("Order cancelled: orderId=%d", order_id)
+        return {"ok": True, "cancelled": result}
+    except Exception as e:
+        logger.error("Failed to cancel order: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 class ClosePositionRequest(BaseModel):
     conId: int
     qty: int
-
+    orderType: str = "MKT"  # MKT or LMT
+    limitPrice: Optional[float] = None
 
 @app.post("/api/position/close")
-async def close_position(req: ClosePositionRequest, authorized: bool = Depends(verify_token)):
+async def close_position(req: ClosePositionRequest):
     """Close a position by selling the specified quantity."""
     if DEMO_MODE:
         return {"ok": True, "demo": True}
     
     try:
-        result = await ib.place_market_order(req.conId, "SELL", req.qty)
-        logger.info("Position closed: conId=%d, qty=%d, result=%s", req.conId, req.qty, result)
+        if req.orderType == "LMT" and req.limitPrice:
+            result = await ib.place_limit_order(req.conId, "SELL", req.qty, req.limitPrice)
+            logger.info("Position close (limit): conId=%d, qty=%d, price=%.2f, result=%s", 
+                       req.conId, req.qty, req.limitPrice, result)
+        else:
+            result = await ib.place_market_order(req.conId, "SELL", req.qty)
+            logger.info("Position close (market): conId=%d, qty=%d, result=%s", req.conId, req.qty, result)
         return {"ok": True, "order": result}
     except Exception as e:
         logger.error("Failed to close position: %s", e)
@@ -1328,6 +1357,7 @@ async def demo_monitor_loop():
                 "type": "account",
                 "summary": DEMO_ACCOUNT,
                 "positions": DEMO_POSITIONS,
+                "orders": [],
                 "connected": True,
             })
 
@@ -1369,10 +1399,12 @@ async def websocket_endpoint(ws: WebSocket):
             try:
                 account = await ib.get_account_summary()
                 positions = await ib.get_positions()
+                orders = await ib.get_open_orders()
                 await ws.send_text(json.dumps({
                     "type": "account",
                     "summary": account,
                     "positions": positions,
+                    "orders": orders,
                     "connected": True,
                 }, default=str))
             except Exception:

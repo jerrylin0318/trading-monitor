@@ -15,6 +15,7 @@ let state = {
     latestData: {},
     account: {},
     positions: [],
+    orders: [],
 };
 
 // Chart instances cache
@@ -22,6 +23,26 @@ const charts = {};        // { watchId: chart }
 const chartSeries = {};   // { watchId: { candle, ma } }
 const todayCandle = {};   // { watchId: { time, open, high, low, close } }
 let lastChartRender = 0;
+
+// Tab switching
+function switchTab(tabName) {
+    // Update buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    // Update panes
+    document.querySelectorAll('.tab-pane').forEach(pane => {
+        pane.classList.toggle('active', pane.id === `tab-${tabName}`);
+    });
+    // Save preference
+    localStorage.setItem('activeTab', tabName);
+}
+
+// Restore last active tab on load
+function restoreTab() {
+    const saved = localStorage.getItem('activeTab');
+    if (saved) switchTab(saved);
+}
 
 // ─── Authentication ───
 function getStoredAuth() {
@@ -201,8 +222,10 @@ function handleMessage(msg) {
             state.connected = msg.connected;
             state.account = msg.summary || {};
             state.positions = msg.positions || [];
+            state.orders = msg.orders || state.orders || [];
             renderAccount();
             renderPositions();
+            renderOrders();
             updateStatusUI();
             break;
         case 'data_update': {
@@ -402,8 +425,12 @@ async function addWatch() {
         // Auto-save to favorites
         addFavorite(item);
         log(`已新增觀察: ${symbol}（已收藏 ⭐）`, 'success');
-        if (!standaloneMode) state.watchList.push(res);
-        renderWatchList();
+        // In standalone mode, push locally; otherwise let WebSocket watch_update handle it
+        if (standaloneMode) {
+            state.watchList.push(res);
+            renderWatchList();
+        }
+        // WebSocket will broadcast watch_update and trigger renderWatchList()
         renderFavorites();
         hideAddWatch();
         document.getElementById('w-symbol').value = '';
@@ -515,6 +542,7 @@ function renderPositions() {
         const name = p.right ? `${p.symbol} ${p.expiry} ${p.strike}${p.right}` : p.symbol;
         const conId = p.conId || '';
         const qty = Math.abs(p.position);
+        const lastPrice = p.marketPrice || (p.marketValue && qty ? p.marketValue / qty / (p.multiplier || 1) : 0);
         html += `<tr>
             <td><strong>${name}</strong></td>
             <td>${p.secType}</td>
@@ -522,31 +550,140 @@ function renderPositions() {
             <td>${p.avgCost?.toFixed(2) || '--'}</td>
             <td>${p.marketValue?.toFixed(2) || '--'}</td>
             <td class="${pnlClass}">${pnl != null ? pnl.toFixed(2) : '--'}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="closePosition(${conId}, ${qty}, '${name}')" title="平倉">✕</button></td>
+            <td><button class="btn btn-sm btn-danger" onclick="closePosition(${conId}, ${qty}, '${name}', ${lastPrice.toFixed(2)})" title="平倉">✕</button></td>
         </tr>`;
     }
     html += '</tbody></table>';
     container.innerHTML = html;
 }
 
-async function closePosition(conId, qty, name) {
+function renderOrders() {
+    const container = document.getElementById('orders-container');
+    if (!state.orders || state.orders.length === 0) {
+        container.innerHTML = '<div class="empty-state">無掛單</div>';
+        return;
+    }
+    let html = `<table>
+        <thead><tr>
+            <th>標的</th><th>方向</th><th>數量</th><th>類型</th><th>價格</th><th>狀態</th><th></th>
+        </tr></thead><tbody>`;
+    for (const o of state.orders) {
+        const name = o.symbol;
+        const actionClass = o.action === 'BUY' ? 'positive' : 'negative';
+        const price = o.orderType === 'MKT' ? '市價' : (o.limitPrice?.toFixed(2) || '--');
+        html += `<tr>
+            <td><strong>${name}</strong></td>
+            <td class="${actionClass}">${o.action}</td>
+            <td>${o.qty}</td>
+            <td>${o.orderType}</td>
+            <td>${price}</td>
+            <td>${o.status}</td>
+            <td><button class="btn btn-sm btn-warning" onclick="cancelOrder(${o.orderId}, '${name}')" title="取消">✕</button></td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+async function refreshOrders() {
+    try {
+        const orders = await api('/api/orders');
+        if (orders) {
+            state.orders = orders;
+            renderOrders();
+            log(`已更新訂單列表 (${orders.length} 筆)`, 'info');
+        }
+    } catch (e) {
+        log('獲取訂單失敗: ' + e.message, 'error');
+    }
+}
+
+async function cancelOrder(orderId, name) {
+    if (!confirm(`確認取消訂單 ${name}？`)) return;
+    try {
+        const res = await api(`/api/orders/${orderId}`, 'DELETE');
+        if (res?.ok) {
+            log(`訂單 ${name} 已取消`, 'success');
+            await refreshOrders();
+        } else {
+            log(`取消失敗: ${res?.error || '未知錯誤'}`, 'error');
+        }
+    } catch (e) {
+        log('取消訂單失敗: ' + e.message, 'error');
+    }
+}
+
+// Close position modal state
+let closeModalData = null;
+
+function showCloseModal(conId, maxQty, name, lastPrice) {
     if (!conId) {
         log('無法平倉：缺少合約 ID', 'error');
         return;
     }
-    if (!confirm(`確認平倉 ${name}？\n數量: ${qty}`)) return;
+    closeModalData = { conId, maxQty, name, lastPrice };
     
-    log(`正在平倉 ${name}...`, 'info');
+    document.getElementById('close-modal-name').textContent = name;
+    document.getElementById('close-modal-qty').value = maxQty;
+    document.getElementById('close-modal-qty').max = maxQty;
+    document.getElementById('close-modal-max').textContent = maxQty;
+    document.getElementById('close-modal-type').value = 'MKT';
+    document.getElementById('close-modal-limit-price').value = lastPrice?.toFixed(2) || '';
+    document.getElementById('close-modal-limit-row').style.display = 'none';
+    document.getElementById('close-modal').classList.remove('hidden');
+}
+
+function hideCloseModal() {
+    document.getElementById('close-modal').classList.add('hidden');
+    closeModalData = null;
+}
+
+function onCloseTypeChange() {
+    const orderType = document.getElementById('close-modal-type').value;
+    document.getElementById('close-modal-limit-row').style.display = orderType === 'LMT' ? 'flex' : 'none';
+}
+
+async function submitCloseOrder() {
+    if (!closeModalData) return;
+    
+    const qty = parseInt(document.getElementById('close-modal-qty').value);
+    const orderType = document.getElementById('close-modal-type').value;
+    const limitPrice = orderType === 'LMT' ? parseFloat(document.getElementById('close-modal-limit-price').value) : null;
+    
+    if (qty <= 0 || qty > closeModalData.maxQty) {
+        log('數量無效', 'error');
+        return;
+    }
+    if (orderType === 'LMT' && (!limitPrice || limitPrice <= 0)) {
+        log('請輸入有效的限價', 'error');
+        return;
+    }
+    
+    hideCloseModal();
+    log(`正在平倉 ${closeModalData.name}...`, 'info');
+    
     try {
-        const res = await api('/api/position/close', 'POST', { conId, qty });
+        const payload = { 
+            conId: closeModalData.conId, 
+            qty,
+            orderType,
+            limitPrice
+        };
+        const res = await api('/api/position/close', 'POST', payload);
         if (res?.ok) {
-            log(`${name} 已平倉`, 'success');
+            const typeLabel = orderType === 'MKT' ? '市價' : `限價 $${limitPrice}`;
+            log(`${closeModalData.name} 平倉單已送出 (${typeLabel}, ${qty}口)`, 'success');
         } else {
             log(`平倉失敗: ${res?.error || '未知錯誤'}`, 'error');
         }
     } catch (e) {
         log(`平倉失敗: ${e.message}`, 'error');
     }
+}
+
+// Legacy function for backward compatibility
+async function closePosition(conId, qty, name, lastPrice) {
+    showCloseModal(conId, qty, name, lastPrice || 0);
 }
 
 function renderWatchList() {
@@ -1682,6 +1819,9 @@ async function api(path, method = 'GET', body = null) {
 // ─── Init ───
 function initApp() {
     log('Trading Monitor 已載入', 'info');
+
+    // Restore tab preference
+    restoreTab();
 
     // Register Service Worker
     if ('serviceWorker' in navigator) {

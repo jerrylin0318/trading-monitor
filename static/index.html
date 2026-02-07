@@ -9,7 +9,7 @@
     <title>Trading Monitor</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=45">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -84,12 +84,42 @@
             </div>
         </div>
 
-        <!-- Positions -->
-        <div class="card">
-            <div class="card-header">📋 持倉部位</div>
-            <div class="card-body">
-                <div id="positions-container">
-                    <div class="empty-state">無持倉</div>
+        <!-- Tabbed Card: Positions / Orders / Signals / Log -->
+        <div class="card tabbed-card">
+            <div class="tab-header">
+                <button class="tab-btn active" data-tab="positions" onclick="switchTab('positions')">📋 持倉</button>
+                <button class="tab-btn" data-tab="orders" onclick="switchTab('orders')">📝 掛單</button>
+                <button class="tab-btn" data-tab="signals" onclick="switchTab('signals')">🔔 信號</button>
+                <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 日誌</button>
+            </div>
+            <div class="tab-content">
+                <!-- Positions Tab -->
+                <div class="tab-pane active" id="tab-positions">
+                    <div id="positions-container">
+                        <div class="empty-state">無持倉</div>
+                    </div>
+                </div>
+                <!-- Orders Tab -->
+                <div class="tab-pane" id="tab-orders">
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                        <button class="btn btn-sm" onclick="refreshOrders()">🔄 刷新</button>
+                    </div>
+                    <div id="orders-container">
+                        <div class="empty-state">無掛單</div>
+                    </div>
+                </div>
+                <!-- Signals Tab -->
+                <div class="tab-pane" id="tab-signals">
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                        <button class="btn btn-sm" onclick="clearSignals()">清除</button>
+                    </div>
+                    <div id="signals-container">
+                        <div class="empty-state">尚無信號</div>
+                    </div>
+                </div>
+                <!-- Log Tab -->
+                <div class="tab-pane" id="tab-logs">
+                    <div class="log-container" id="log-container"></div>
                 </div>
             </div>
         </div>
@@ -186,19 +216,6 @@
             </div>
         </div>
 
-        <!-- Signals -->
-        <div class="card">
-            <div class="card-header">
-                🔔 信號記錄
-                <button class="btn btn-sm" onclick="clearSignals()">清除</button>
-            </div>
-            <div class="card-body">
-                <div id="signals-container">
-                    <div class="empty-state">尚無信號</div>
-                </div>
-            </div>
-        </div>
-
         <!-- Options Panel (appears on signal) -->
         <div class="card full-width" id="options-card" style="display:none;">
             <div class="card-header">
@@ -208,19 +225,41 @@
             <div class="card-body" id="options-body">
             </div>
         </div>
-
-        <!-- Log -->
-        <div class="card full-width">
-            <div class="card-header">📜 日誌</div>
-            <div class="card-body">
-                <div class="log-container" id="log-container"></div>
-            </div>
-        </div>
     </div>
 
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js"></script>
+    <!-- Close Position Modal -->
+    <div id="close-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>📤 平倉</h3>
+            <div class="modal-name" id="close-modal-name"></div>
+            <div class="modal-row">
+                <label>數量</label>
+                <div class="modal-input-group">
+                    <input type="number" id="close-modal-qty" min="1" max="100">
+                    <span class="modal-hint">/ <span id="close-modal-max"></span></span>
+                </div>
+            </div>
+            <div class="modal-row">
+                <label>委託類型</label>
+                <select id="close-modal-type" onchange="onCloseTypeChange()">
+                    <option value="MKT">市價 (MKT)</option>
+                    <option value="LMT">限價 (LMT)</option>
+                </select>
+            </div>
+            <div class="modal-row" id="close-modal-limit-row" style="display:none;">
+                <label>限價</label>
+                <input type="number" id="close-modal-limit-price" step="0.01" min="0.01" placeholder="$">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideCloseModal()">取消</button>
+                <button class="btn btn-danger" onclick="submitCloseOrder()">確認平倉</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=45"></script>
 </body>
 </html>
