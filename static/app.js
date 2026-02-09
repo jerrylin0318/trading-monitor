@@ -817,13 +817,19 @@ function renderWatchList() {
                 </div>
             </div>
             <div class="watch-details">
-                <span style="color:var(--blue)">${strategyLabel}</span>
-                <span style="color:var(--yellow)">${timeframeLabel}線</span>
-                <span>MA${w.ma_period}</span>
-                ${strategyType === 'BB' ? `<span>σ=${w.bb_std_dev || 2}</span>` : `<span>N=${w.n_points}</span>`}
-                ${confirmEnabled && strategyType === 'MA' ? `<span style="color:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmDirLabel}${confirmStatus}</span>` : ''}
-                <span>價格: ${price}</span>
-                ${strategyType === 'BB' ? `<span>上: ${data.bb_upper ? data.bb_upper.toFixed(2) : '--'}</span><span>下: ${data.bb_lower ? data.bb_lower.toFixed(2) : '--'}</span>` : `<span>MA: ${ma}</span><span>距離: ${dist}</span>`}
+                <div class="watch-info-row">
+                    <span class="info-tag" style="background:var(--blue)">${strategyLabel}</span>
+                    <span class="info-tag" style="background:var(--yellow);color:#000">${timeframeLabel}</span>
+                    <span class="info-tag">MA${w.ma_period}</span>
+                    <span class="info-tag">${strategyType === 'BB' ? `σ${w.bb_std_dev || 2}` : `N${w.n_points}`}</span>
+                    ${confirmEnabled && strategyType === 'MA' ? `<span class="info-tag" style="background:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmStatus}</span>` : ''}
+                </div>
+                <div class="watch-price-row">
+                    <span class="price-item">💰 ${price}</span>
+                    ${strategyType === 'BB' 
+                        ? `<span class="price-item">↑${data.bb_upper ? data.bb_upper.toFixed(1) : '--'}</span><span class="price-item">↓${data.bb_lower ? data.bb_lower.toFixed(1) : '--'}</span>` 
+                        : `<span class="price-item">MA ${ma}</span><span class="price-item">${dist}</span>`}
+                </div>
             </div>
             <div class="watch-bottom-row">
                 <div class="watch-ma-info">
@@ -860,24 +866,18 @@ function updatePriceDisplays(watchId, data) {
     if (idx >= items.length) return;
     
     const item = items[idx];
-    const details = item.querySelector('.watch-details');
-    if (details && data.current_price) {
-        const spans = details.querySelectorAll('span');
-        // spans: [strategyLabel, MA period, σ/N, 價格, 上/MA, 下/距離] or with confirm MA
-        // Find the price span and update from there
-        for (let i = 0; i < spans.length; i++) {
-            const text = spans[i].textContent;
-            if (text.startsWith('價格:')) {
-                spans[i].textContent = `價格: ${data.current_price.toFixed(2)}`;
-                if (strategyType === 'BB') {
-                    if (spans[i+1]) spans[i+1].textContent = `上: ${data.bb_upper ? data.bb_upper.toFixed(2) : '--'}`;
-                    if (spans[i+2]) spans[i+2].textContent = `下: ${data.bb_lower ? data.bb_lower.toFixed(2) : '--'}`;
-                } else {
-                    if (spans[i+1]) spans[i+1].textContent = `MA: ${(data.ma_value || 0).toFixed(2)}`;
-                    if (spans[i+2]) spans[i+2].textContent = `距離: ${(data.distance_from_ma || 0).toFixed(2)}`;
-                }
-                break;
-            }
+    const priceRow = item.querySelector('.watch-price-row');
+    if (priceRow && data.current_price) {
+        const priceItems = priceRow.querySelectorAll('.price-item');
+        if (priceItems.length >= 1) {
+            priceItems[0].textContent = `💰 ${data.current_price.toFixed(2)}`;
+        }
+        if (strategyType === 'BB') {
+            if (priceItems[1]) priceItems[1].textContent = `↑${data.bb_upper ? data.bb_upper.toFixed(1) : '--'}`;
+            if (priceItems[2]) priceItems[2].textContent = `↓${data.bb_lower ? data.bb_lower.toFixed(1) : '--'}`;
+        } else {
+            if (priceItems[1]) priceItems[1].textContent = `MA ${(data.ma_value || 0).toFixed(2)}`;
+            if (priceItems[2]) priceItems[2].textContent = `${(data.distance_from_ma || 0) >= 0 ? '+' : ''}${(data.distance_from_ma || 0).toFixed(2)}`;
         }
     }
     
@@ -1279,25 +1279,34 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
             const amt = optSel.amount || 1000;
             const mult = o.multiplier || 100;
             return `
-            <div class="opt-inline-row">
-                <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
-                    data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
-                    data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
-                    data-multiplier="${mult}" data-key="${optKey}" ${checked}
-                    onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
-                <span class="opt-inline-strike">${o.strike}</span>
-                <span class="opt-inline-mult">×${mult}</span>
-                <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
-                <span class="opt-inline-ba">${o.bid?.toFixed(2) ?? '--'}/${o.ask?.toFixed(2) ?? '--'}</span>
-                <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
-                <span class="opt-inline-vol">${o.volume || '--'}</span>
-                <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+            <div class="opt-row-wrap">
+                <div class="opt-inline-row opt-row-main">
+                    <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
+                        data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
+                        data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
+                        data-multiplier="${mult}" data-key="${optKey}" ${checked}
+                        onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
+                    <span class="opt-inline-strike">${o.strike}</span>
+                    <span class="opt-inline-mult">×${mult}</span>
+                    <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
+                    <span class="opt-inline-ba">${o.bid?.toFixed(2) ?? '--'}/${o.ask?.toFixed(2) ?? '--'}</span>
+                    <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
+                    <span class="opt-inline-vol">${o.volume || '--'}</span>
+                    <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+                </div>
+                <div class="opt-row-sub">
+                    <span class="opt-sub-info">×${mult} · ${o.expiryLabel || o.expiry} ${o.right}</span>
+                    <input type="number" value="${amt}" min="100" step="100" class="opt-sub-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+                </div>
             </div>`;
         }).join('');
         return `<div class="opt-inline-group">
             <div class="opt-inline-label" style="color:${color}">${label}</div>
             <div class="opt-inline-header">
                 <span></span><span>履約價</span><span>乘數</span><span>到期</span><span>Bid/Ask</span><span>Last</span><span>Vol</span><span>金額$</span>
+            </div>
+            <div class="opt-inline-header-mobile">
+                <span></span><span>履約價</span><span>Bid/Ask</span><span>Last</span>
             </div>
             ${rows}
         </div>`;

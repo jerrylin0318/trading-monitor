@@ -334,13 +334,37 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .watch-details {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px 16px;
+    flex-direction: column;
+    gap: 6px;
     font-size: 12px;
     color: var(--text-secondary);
     margin-top: 8px;
 }
-.watch-details span { display: flex; align-items: center; gap: 4px; }
+.watch-info-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.info-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+.watch-price-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+.price-item {
+    font-size: 13px;
+    font-weight: 500;
+}
 .watch-bottom-row {
     display: flex;
     align-items: center;
@@ -435,13 +459,71 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .opt-inline-vol { font-size: 10px; color: var(--text-muted); text-align: right; }
 .opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
 
+/* Mobile: hidden by default, shown only on small screens */
+.opt-inline-header-mobile { display: none; }
+.opt-row-sub { display: none; }
+
 @media (max-width: 600px) {
-    .opt-inline-header { grid-template-columns: 22px 50px 30px 50px 55px 45px 40px; font-size: 9px; }
-    .opt-inline-row { grid-template-columns: 22px 50px 30px 50px 55px 45px 40px; }
-    .opt-inline-vol { display: none; }
-    .opt-inline-header span:nth-child(7) { display: none; } /* hide Vol header on mobile */
-    .opt-inline-ba { font-size: 9px; }
-    .opt-inline-mult { font-size: 9px; }
+    /* Hide desktop header, show mobile header */
+    .opt-inline-header { display: none; }
+    .opt-inline-header-mobile {
+        display: grid;
+        grid-template-columns: 26px 1fr 80px 55px;
+        gap: 6px;
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        padding: 4px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 4px;
+    }
+    
+    /* Row wrapper for two-line layout */
+    .opt-row-wrap {
+        border-bottom: 1px solid var(--border);
+        padding: 6px 0;
+    }
+    .opt-row-wrap:last-child { border-bottom: none; }
+    
+    /* First row: checkbox, strike, bid/ask, last */
+    .opt-row-main {
+        display: grid;
+        grid-template-columns: 26px 1fr 80px 55px;
+        gap: 6px;
+        align-items: center;
+    }
+    .opt-row-main .opt-inline-mult,
+    .opt-row-main .opt-inline-name,
+    .opt-row-main .opt-inline-vol,
+    .opt-row-main .opt-inline-amt { display: none; }
+    
+    .opt-row-main .opt-inline-strike { font-size: 15px; font-weight: 700; }
+    .opt-row-main .opt-inline-ba { font-size: 12px; text-align: right; }
+    .opt-row-main .opt-inline-last { font-size: 14px; }
+    
+    /* Second row: info + amount input */
+    .opt-row-sub {
+        display: grid;
+        grid-template-columns: 26px 1fr 90px;
+        gap: 6px;
+        align-items: center;
+        margin-top: 4px;
+    }
+    .opt-sub-info {
+        grid-column: 2;
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .opt-sub-amt {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 13px;
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text-primary);
+        text-align: center;
+    }
 }
 
 /* Exit strategy config */
@@ -653,15 +735,22 @@ tr:hover td { background: rgba(255,255,255,0.02); }
         justify-content: flex-end;
     }
     
-    /* Watch details - stack vertically on mobile */
+    /* Watch details - compact 2-row on mobile */
     .watch-details {
-        flex-direction: column;
         gap: 4px;
-        font-size: 11px;
     }
-    .watch-details span {
-        display: block;
-        padding: 2px 0;
+    .watch-info-row {
+        gap: 4px;
+    }
+    .info-tag {
+        padding: 2px 6px;
+        font-size: 10px;
+    }
+    .watch-price-row {
+        gap: 8px;
+    }
+    .price-item {
+        font-size: 12px;
     }
     
     /* Watch bottom row */
