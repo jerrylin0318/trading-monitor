@@ -26,8 +26,12 @@ let lastChartRender = 0;
 
 // Tab switching
 function switchTab(tabName) {
-    // Update buttons
+    // Update top tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    // Update bottom nav buttons
+    document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
     });
     // Update panes

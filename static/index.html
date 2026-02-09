@@ -9,7 +9,7 @@
     <title>Trading Monitor</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css?v=54">
+    <link rel="stylesheet" href="/static/style.css?v=55">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -238,6 +238,30 @@
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- Bottom Navigation (mobile only) -->
+    <nav class="bottom-nav">
+        <button class="bottom-nav-btn active" data-tab="watch" onclick="switchTab('watch')">
+            <span class="nav-icon">👁️</span>
+            <span class="nav-label">觀察</span>
+        </button>
+        <button class="bottom-nav-btn" data-tab="positions" onclick="switchTab('positions')">
+            <span class="nav-icon">📋</span>
+            <span class="nav-label">持倉</span>
+        </button>
+        <button class="bottom-nav-btn" data-tab="orders" onclick="switchTab('orders')">
+            <span class="nav-icon">📝</span>
+            <span class="nav-label">掛單</span>
+        </button>
+        <button class="bottom-nav-btn" data-tab="signals" onclick="switchTab('signals')">
+            <span class="nav-icon">🔔</span>
+            <span class="nav-label">信號</span>
+        </button>
+        <button class="bottom-nav-btn" data-tab="logs" onclick="switchTab('logs')">
+            <span class="nav-icon">📜</span>
+            <span class="nav-label">日誌</span>
+        </button>
+    </nav>
+
     <!-- Close Position Modal -->
     <div id="close-modal" class="modal-overlay hidden">
         <div class="modal-box">
@@ -268,6 +292,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=54"></script>
+    <script src="/static/app.js?v=55"></script>
 </body>
 </html>
