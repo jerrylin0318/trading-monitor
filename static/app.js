@@ -305,6 +305,15 @@ async function api(path, method = 'GET', body = null) {
     return _realApi(path, method, body);
 }
 
+// Toggle account details panel
+function toggleAccountDetails() {
+    const details = document.getElementById('account-details');
+    const toggle = document.getElementById('acc-toggle');
+    const isOpen = details.style.display !== 'none';
+    details.style.display = isOpen ? 'none' : 'block';
+    toggle.classList.toggle('open', !isOpen);
+}
+
 async function toggleConnect() {
     const btn = document.getElementById('btn-connect');
     if (state.connected) {
@@ -405,6 +414,7 @@ async function addWatch() {
     
     const confirmMaEnabled = document.getElementById('w-confirm-ma-enabled').checked;
     const strategyType = document.getElementById('w-strategy-type').value;
+    const timeframe = document.getElementById('w-timeframe').value;
     const item = {
         symbol,
         sec_type: secType,
@@ -418,6 +428,7 @@ async function addWatch() {
         confirm_ma_period: confirmMaEnabled ? parseInt(document.getElementById('w-confirm-ma-period').value) || 55 : 55,
         strategy_type: strategyType,
         bb_std_dev: strategyType === 'BB' ? parseFloat(document.getElementById('w-bb-std-dev').value) || 2 : 2,
+        timeframe: timeframe,
         enabled: true,
     };
     const res = await api('/api/watch', 'POST', item);
@@ -520,10 +531,30 @@ function renderAccount() {
     document.getElementById('acc-available').textContent = '$' + fmt(get('AvailableFunds'));
     document.getElementById('acc-buying-power').textContent = '$' + fmt(get('BuyingPower'));
 
+    // Unrealized PnL
     const pnl = get('UnrealizedPnL');
     const el = document.getElementById('acc-unrealized-pnl');
     el.textContent = pnl === '--' ? '--' : '$' + fmt(pnl);
     el.className = 'value ' + pnlClass(pnl);
+    
+    // PnL badge in top bar
+    const pnlBadge = document.getElementById('acc-pnl-badge');
+    if (pnl !== '--') {
+        const pnlNum = parseFloat(pnl);
+        pnlBadge.textContent = (pnlNum >= 0 ? '+' : '') + '$' + fmt(pnl);
+        pnlBadge.className = 'account-bar-pnl ' + (pnlNum >= 0 ? 'positive' : 'negative');
+    } else {
+        pnlBadge.textContent = '';
+        pnlBadge.className = 'account-bar-pnl';
+    }
+    
+    // Realized PnL
+    const realizedPnl = get('RealizedPnL');
+    const realizedEl = document.getElementById('acc-realized-pnl');
+    if (realizedEl) {
+        realizedEl.textContent = realizedPnl === '--' ? '--' : '$' + fmt(realizedPnl);
+        realizedEl.className = 'value ' + pnlClass(realizedPnl);
+    }
 }
 
 function renderPositions() {
@@ -705,6 +736,8 @@ function renderWatchList() {
         const stratLabel = w.direction === 'LONG' ? '📈 做多' : '📉 做空';
         const strategyType = w.strategy_type || data.strategy_type || 'MA';
         const strategyLabel = strategyType === 'BB' ? '布林帶' : 'MA';
+        const timeframe = w.timeframe || 'D';
+        const timeframeLabel = timeframe === 'W' ? '週' : timeframe === 'M' ? '月' : '日';
         
         // 觸發區 + 有效性判斷
         let zone = '--';
@@ -785,6 +818,7 @@ function renderWatchList() {
             </div>
             <div class="watch-details">
                 <span style="color:var(--blue)">${strategyLabel}</span>
+                <span style="color:var(--yellow)">${timeframeLabel}線</span>
                 <span>MA${w.ma_period}</span>
                 ${strategyType === 'BB' ? `<span>σ=${w.bb_std_dev || 2}</span>` : `<span>N=${w.n_points}</span>`}
                 ${confirmEnabled && strategyType === 'MA' ? `<span style="color:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmDirLabel}${confirmStatus}</span>` : ''}
@@ -802,7 +836,7 @@ function renderWatchList() {
                     </button>
                     ${expanded ? `<button class="btn btn-sm" onclick="updateOptionPrices('${w.id}')" title="更新報價">🔄</button>` : ''}
                     <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
-                        ${expanded ? '收起 ▲' : '選擇權 ▼'}
+                        ${expanded ? '收起 ▲' : '交易標的 ▼'}
                     </button>
                 </div>
             </div>
@@ -905,7 +939,7 @@ async function resetOptions(watchId) {
             data.selected_expiry = Object.keys(data.options_call)[0];
         }
         renderWatchList();
-        log(`${w.symbol} 選擇權已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
+        log(`${w.symbol} 交易標的已依 MA=${maVal.toFixed(2)} 重新篩選`, 'success');
         return;
     }
     
@@ -1221,7 +1255,7 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     const putKeys = Object.keys(putOptsData || {});
     const expiries = callKeys.length ? callKeys : putKeys;
     if (!expiries.length) {
-        return '<div class="opts-section"><div class="empty-state">尚無選擇權數據</div></div>';
+        return '<div class="opts-section"><div class="empty-state">尚無交易標的數據</div></div>';
     }
 
     const selectedExpiry = data.selected_expiry || expiries[0];
@@ -1272,15 +1306,29 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
     // Also show underlying as tradeable
     const stkSel = sel['stk'] || {};
     const stkChecked = stkSel.checked ? 'checked' : '';
-    const stkAmt = stkSel.amount || 5000;
+    // Get underlying contract info (conId, multiplier) from data
+    const underlyingInfo = data.underlying || {};
+    const stkConId = underlyingInfo.conId || '';
+    const stkMultiplier = underlyingInfo.multiplier || 1;
+    // For FUT: input is qty (margin-based); for STK: input is amount (full payment)
+    const isFutures = watch.sec_type === 'FUT';
+    const stkInputVal = stkSel.amount || (isFutures ? 1 : 5000);
+    const stkPlaceholder = isFutures ? '口數' : '金額';
+    const stkMin = isFutures ? 1 : 100;
+    const stkStep = isFutures ? 1 : 100;
     const underlying = `
         <div class="opt-inline-row" style="border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px;">
-            <input type="checkbox" id="opt-${watch.id}-stk" class="opt-check" data-ask="${price}" data-key="stk" ${stkChecked} onchange="saveOptSel('${watch.id}','stk',this.checked)">
+            <input type="checkbox" id="opt-${watch.id}-stk" class="opt-check" 
+                data-ask="${price}" data-key="stk" data-conid="${stkConId}" data-multiplier="${stkMultiplier}"
+                data-sectype="${watch.sec_type}"
+                ${stkChecked} onchange="saveOptSel('${watch.id}','stk',this.checked)">
             <span class="opt-inline-strike" style="color:var(--blue);">標的</span>
+            <span class="opt-inline-mult">×${stkMultiplier}</span>
             <span class="opt-inline-name">📈 ${watch.symbol}</span>
             <span class="opt-inline-ba">--</span>
             <span class="opt-inline-last" style="color:var(--blue)">$${price}</span>
-            <input type="number" value="${stkAmt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','stk',this.value)">
+            <span class="opt-inline-vol"></span>
+            <input type="number" value="${stkInputVal}" min="${stkMin}" step="${stkStep}" class="opt-inline-amt" placeholder="${stkPlaceholder}" onchange="saveOptAmt('${watch.id}','stk',this.value)">
         </div>`;
     
     // Exit strategy configuration (preserve state)
@@ -1402,7 +1450,7 @@ async function placeOrder(watchId) {
     // Collect checked options from DOM (has latest data attributes)
     const checkboxes = document.querySelectorAll(`input.opt-check[id^="opt-${watchId}-"]:checked`);
     if (checkboxes.length === 0) {
-        log('請先勾選要交易的選擇權', 'warning');
+        log('請先勾選要交易的標的', 'warning');
         return;
     }
 
@@ -1416,21 +1464,35 @@ async function placeOrder(watchId) {
         const right = chk.dataset.right;
         const expiry = chk.dataset.expiry;
         const key = chk.dataset.key;
+        const secType = chk.dataset.sectype;  // FUT or STK for underlying
         const amtInput = chk.closest('.opt-inline-row')?.querySelector('.opt-inline-amt');
-        const amount = parseFloat(amtInput?.value) || 1000;
 
-        if (key === 'stk') return; // Skip underlying for now (options only)
+        // Handle both options and underlying (stk)
         if (!conId || !ask || ask <= 0) return;
 
-        // Use actual multiplier from contract (FOP: MNQ=2, MES=5; STK options=100)
+        // Use actual multiplier from contract (FOP: MNQ=2, MES=5; STK options=100; FUT varies)
         const multiplier = parseFloat(chk.dataset.multiplier) || 100;
-        const qty = Math.max(1, Math.floor(amount / (ask * multiplier)));
-        items.push({ conId, ask, amount, right, strike: parseFloat(strike), expiry });
-        displayItems.push({ strike, right, expiry: expiry?.slice(4), ask, qty, amount, multiplier });
+        const isUnderlying = key === 'stk';
+        const isFutures = secType === 'FUT';
+        const inputVal = parseFloat(amtInput?.value) || (isFutures ? 1 : 1000);
+        
+        let qty, amount;
+        if (isUnderlying && isFutures) {
+            // Futures: input is qty (margin-based)
+            qty = Math.max(1, Math.floor(inputVal));
+            amount = ask * qty * multiplier;
+        } else {
+            // Options or Stocks: input is amount, calculate qty
+            amount = inputVal;
+            qty = Math.max(1, Math.floor(amount / (ask * multiplier)));
+        }
+        
+        items.push({ conId, ask, amount, right, strike: parseFloat(strike), expiry, multiplier, isUnderlying, isFutures, qty });
+        displayItems.push({ strike: isUnderlying ? '標的' : strike, right: isUnderlying ? '📈' : right, expiry: expiry?.slice(4), ask, qty, amount, multiplier, isUnderlying, isFutures });
     });
 
     if (items.length === 0) {
-        log('無有效選擇權可下單（需有 Ask 價格）', 'warning');
+        log('無有效標的可下單（需有 Ask 價格）', 'warning');
         return;
     }
 
@@ -1475,7 +1537,16 @@ async function placeOrder(watchId) {
     let confirmMsg = `確認下單 ${w.symbol}？\n\n`;
     displayItems.forEach(d => {
         const cost = d.ask * d.qty * d.multiplier;
-        confirmMsg += `${d.right} ${d.strike} (${d.expiry}) | Ask $${d.ask} × ${d.qty}口 × ${d.multiplier} = $${cost.toFixed(0)}\n`;
+        if (d.isUnderlying && d.isFutures) {
+            // Futures: show qty directly (margin-based)
+            confirmMsg += `${d.right} ${d.strike} | ${d.qty}口 @ $${d.ask} (×${d.multiplier})\n`;
+        } else if (d.isUnderlying) {
+            // Stocks: show shares calculated from amount
+            confirmMsg += `${d.right} ${d.strike} | $${d.amount} → ${d.qty}股 @ $${d.ask}\n`;
+        } else {
+            // Options
+            confirmMsg += `${d.right} ${d.strike} (${d.expiry}) | Ask $${d.ask} × ${d.qty}口 × ${d.multiplier} = $${cost.toFixed(0)}\n`;
+        }
     });
     if (exitDesc.length) {
         confirmMsg += `\n平倉策略: ${exitDesc.join(' / ')}`;
@@ -1582,7 +1653,7 @@ function showOptionsPanel(signal, options, underlying) {
             </div>`;
         }
     } else {
-        html += '<div class="empty-state">無法取得選擇權資料</div>';
+        html += '<div class="empty-state">無法取得交易標的資料</div>';
     }
 
     html += `

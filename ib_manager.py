@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
-from ib_insync import IB, Contract, Stock, Future, Option, Index, MarketOrder, LimitOrder, util
+from ib_insync import IB, Contract, Stock, Future, ContFuture, Option, Index, MarketOrder, LimitOrder, util
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -190,13 +190,22 @@ class IBManager:
             return []
 
     def _make_contract(self, symbol: str, sec_type: str = "STK", exchange: str = "SMART", 
-                       currency: str = "USD", contract_month: str = "") -> Contract:
-        """Create a contract object."""
+                       currency: str = "USD", contract_month: str = "",
+                       use_contfut: bool = False) -> Contract:
+        """Create a contract object.
+        
+        Args:
+            use_contfut: If True and sec_type is FUT with no contract_month,
+                        use ContFut (continuous futures) for historical data.
+        """
         if sec_type == "STK":
             return Stock(symbol, exchange, currency)
         elif sec_type == "FUT":
             if contract_month:
                 return Future(symbol, contract_month, exchange=exchange, currency=currency)
+            elif use_contfut:
+                # Continuous futures for historical data (long history)
+                return ContFuture(symbol, exchange=exchange, currency=currency)
             return Future(symbol, exchange=exchange, currency=currency)
         elif sec_type == "IND":
             return Index(symbol, exchange, currency)
@@ -207,7 +216,9 @@ class IBManager:
                                duration: str, bar_size: str, contract_month: str = "") -> Optional[pd.DataFrame]:
         """Synchronous daily bars fetch."""
         ib = self._get_ib()
-        contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month)
+        # Use ContFut for futures with no contract_month (continuous contract for long history)
+        use_contfut = (sec_type == "FUT" and not contract_month)
+        contract = self._make_contract(symbol, sec_type, exchange, currency, contract_month, use_contfut=use_contfut)
         qualified = ib.qualifyContracts(contract)
         if not qualified:
             logger.error("Could not qualify contract: %s", symbol)
@@ -701,3 +712,21 @@ class IBManager:
         """Keep IB event loop alive."""
         if self.connected:
             util.sleep(seconds)
+
+    def get_underlying_info(self, watch_id: str) -> Optional[Dict[str, Any]]:
+        """Get underlying contract info (conId, multiplier) for a watch item."""
+        if watch_id not in _subscriptions:
+            return None
+        contract, ticker = _subscriptions[watch_id]
+        multiplier = 1
+        if hasattr(contract, 'multiplier') and contract.multiplier:
+            try:
+                multiplier = int(contract.multiplier)
+            except (ValueError, TypeError):
+                multiplier = 1
+        return {
+            "conId": contract.conId,
+            "multiplier": multiplier,
+            "symbol": contract.symbol,
+            "secType": contract.secType,
+        }

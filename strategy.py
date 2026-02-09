@@ -46,6 +46,7 @@ class WatchItem:
     confirm_ma_period: int = 55  # Confirmation MA period
     strategy_type: str = "MA"  # MA or BB (Bollinger Bands)
     bb_std_dev: float = 2.0  # Bollinger Bands standard deviation multiplier
+    timeframe: str = "D"  # D=日線, W=週線, M=月線
 
     def to_dict(self):
         return asdict(self)

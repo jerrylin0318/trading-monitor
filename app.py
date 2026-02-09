@@ -83,6 +83,19 @@ class LoginRequest(BaseModel):
     password: str
 
 
+# --- Timeframe settings ---
+def get_timeframe_params(timeframe: str) -> tuple:
+    """Return (duration, bar_size) based on timeframe.
+    D = 日線, W = 週線, M = 月線
+    """
+    if timeframe == "W":
+        return ("2 Y", "1 week")
+    elif timeframe == "M":
+        return ("5 Y", "1 month")
+    else:  # Default: D (daily)
+        return ("6 M", "1 day")
+
+
 # --- Demo data ---
 DEMO_ACCOUNT = {
     "NetLiquidation": {"value": "125430.50", "currency": "USD"},
@@ -180,12 +193,15 @@ async def _close_trade_and_reset(trade: Dict, reason: str = ""):
 async def _init_new_watch(watch):
     """Initialize a newly added watch item during live monitoring.
 
-    Steps: fetch daily bars → calculate thresholds → subscribe streaming → cache options.
+    Steps: fetch bars → calculate thresholds → subscribe streaming → cache options.
     """
     try:
+        duration, bar_size = get_timeframe_params(watch.timeframe)
+        # 期貨用連續合約獲取歷史數據（長期數據），其他類型用原本設定
+        hist_contract_month = "" if watch.sec_type == "FUT" else watch.contract_month
         df = await ib.get_daily_bars(
             watch.symbol, watch.sec_type, watch.exchange, watch.currency,
-            contract_month=watch.contract_month
+            duration=duration, bar_size=bar_size, contract_month=hist_contract_month
         )
         if df is None or len(df) < watch.ma_period + 1:
             logger.warning("Insufficient data for new watch %s", watch.symbol)
@@ -301,10 +317,13 @@ async def monitor_loop():
         if not watch.enabled:
             continue
         try:
-            # Fetch daily bars for MA calculation
+            # Fetch bars for MA calculation (based on timeframe)
+            # 期貨用連續合約獲取歷史數據
+            duration, bar_size = get_timeframe_params(watch.timeframe)
+            hist_contract_month = "" if watch.sec_type == "FUT" else watch.contract_month
             df = await ib.get_daily_bars(
                 watch.symbol, watch.sec_type, watch.exchange, watch.currency,
-                contract_month=watch.contract_month
+                duration=duration, bar_size=bar_size, contract_month=hist_contract_month
             )
             if df is None or len(df) < watch.ma_period + 1:
                 logger.warning("Insufficient data for %s", watch.symbol)
@@ -384,6 +403,11 @@ async def monitor_loop():
                         data["options_call"] = _options_cache[watch_id]["call"]
                         data["options_put"] = _options_cache[watch_id]["put"]
                         data["locked_ma"] = _options_cache[watch_id]["ma_price"]
+
+                    # Include underlying contract info for direct futures trading
+                    underlying_info = ib.get_underlying_info(watch_id)
+                    if underlying_info:
+                        data["underlying"] = underlying_info
 
                     await broadcast({"type": "data_update", "watch_id": watch_id, "data": data})
                     last_broadcast_prices[watch_id] = price
@@ -535,9 +559,11 @@ async def monitor_loop():
                     if not watch.enabled:
                         continue
                     try:
+                        duration, bar_size = get_timeframe_params(watch.timeframe)
+                        hist_contract_month = "" if watch.sec_type == "FUT" else watch.contract_month
                         df = await ib.get_daily_bars(
                             watch.symbol, watch.sec_type, watch.exchange, watch.currency,
-                            contract_month=watch.contract_month
+                            duration=duration, bar_size=bar_size, contract_month=hist_contract_month
                         )
                         if df is not None and len(df) >= watch.ma_period + 1:
                             new_cache = engine.calculate_thresholds(watch_id, df, watch)
@@ -612,6 +638,7 @@ class WatchItemCreate(BaseModel):
     confirm_ma_period: int = 55
     strategy_type: str = "MA"  # MA or BB
     bb_std_dev: float = 2.0
+    timeframe: str = "D"  # D=日線, W=週線, M=月線
 
 
 class WatchItemUpdate(BaseModel):
@@ -628,6 +655,7 @@ class WatchItemUpdate(BaseModel):
     bb_std_dev: Optional[float] = None
     contract_month: Optional[str] = None
     direction: Optional[str] = None
+    timeframe: Optional[str] = None
 
 
 # --- API Routes ---
@@ -779,6 +807,7 @@ async def add_watch(item: WatchItemCreate):
         confirm_ma_period=item.confirm_ma_period,
         strategy_type=item.strategy_type,
         bb_std_dev=item.bb_std_dev,
+        timeframe=item.timeframe,
     )
     engine.add_watch(watch)
     save_config()
@@ -915,16 +944,19 @@ async def get_candles(watch_id: str):
     candles = engine.get_candles(watch_id)
     
     # If no cached candles, fetch from IB
+    # 期貨用連續合約獲取歷史數據
     if not candles and ib.connected:
         try:
+            duration, bar_size = get_timeframe_params(watch.timeframe)
+            hist_contract_month = "" if watch.sec_type == "FUT" else (watch.contract_month or None)
             df = await ib.get_daily_bars(
                 symbol=watch.symbol,
                 sec_type=watch.sec_type,
                 exchange=watch.exchange,
                 currency=watch.currency,
-                duration="6 M",
-                bar_size="1 day",
-                contract_month=watch.contract_month or None,
+                duration=duration,
+                bar_size=bar_size,
+                contract_month=hist_contract_month,
             )
             if df is not None and len(df) > 0:
                 import time as _time
@@ -1153,6 +1185,11 @@ async def place_order(req: OrderRequest):
     cached_opts = (opt_cache.get("call_raw") or []) + (opt_cache.get("put_raw") or [])
     multiplier_map = {o.get("conId"): o.get("multiplier", 100) for o in cached_opts if o.get("conId")}
 
+    # Also include underlying contract info for direct futures trading
+    underlying_info = ib.get_underlying_info(req.watch_id)
+    if underlying_info and underlying_info.get("conId"):
+        multiplier_map[underlying_info["conId"]] = underlying_info.get("multiplier", 1)
+
     results = []
     for item in req.items:
         con_id = item.get("conId")
@@ -1164,7 +1201,8 @@ async def place_order(req: OrderRequest):
             continue
 
         # Calculate quantity: amount / (ask × multiplier)
-        multiplier = multiplier_map.get(con_id, 100)
+        # For underlying futures, use the item's multiplier if provided
+        multiplier = item.get("multiplier") or multiplier_map.get(con_id, 100)
         qty = max(1, int(amount / (ask * multiplier)))
 
         # Determine action: BUY for calls/puts entry

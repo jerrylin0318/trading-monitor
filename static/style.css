@@ -159,11 +159,58 @@ label {
     flex: 1;
 }
 
-/* Account info */
+/* Account info - Collapsible bar */
+.account-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+.account-bar:hover { background: var(--bg-input); }
+.account-bar-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.account-bar-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.account-bar-pnl {
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+.account-bar-pnl.positive { background: rgba(46,204,113,0.2); color: var(--green); }
+.account-bar-pnl.negative { background: rgba(239,83,80,0.2); color: var(--red); }
+.account-bar-toggle {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+.account-bar-toggle.open { transform: rotate(180deg); }
+
+.account-details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    margin-top: -8px;
+}
+
 .account-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
 }
 .account-item {
     background: var(--bg-input);
@@ -381,19 +428,19 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .opt-inline-row:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
 .opt-inline-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--blue); }
 .opt-inline-strike { font-weight: 700; color: var(--yellow); font-size: 13px; }
-.opt-inline-mult { font-size: 10px; color: var(--text-muted); }
-.opt-inline-name { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.opt-inline-ba { color: var(--text-muted); font-size: 11px; text-align: right; }
+.opt-inline-mult { font-size: 10px; color: var(--text-secondary); }
+.opt-inline-name { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opt-inline-ba { color: var(--text-secondary); font-size: 11px; text-align: right; }
 .opt-inline-last { font-weight: 600; text-align: right; }
 .opt-inline-vol { font-size: 10px; color: var(--text-muted); text-align: right; }
 .opt-inline-qty { width: 100%; text-align: center; padding: 2px 4px; font-size: 12px; }
 
 @media (max-width: 600px) {
-    .opt-inline-header { grid-template-columns: 22px 50px 30px 1fr 45px 35px 40px; font-size: 9px; }
-    .opt-inline-row { grid-template-columns: 22px 50px 30px 1fr 45px 35px 40px; }
-    .opt-inline-ba { display: none; }
-    .opt-inline-header span:nth-child(5) { display: none; } /* hide bid/ask header on mobile */
-    .opt-inline-vol { font-size: 9px; }
+    .opt-inline-header { grid-template-columns: 22px 50px 30px 50px 55px 45px 40px; font-size: 9px; }
+    .opt-inline-row { grid-template-columns: 22px 50px 30px 50px 55px 45px 40px; }
+    .opt-inline-vol { display: none; }
+    .opt-inline-header span:nth-child(7) { display: none; } /* hide Vol header on mobile */
+    .opt-inline-ba { font-size: 9px; }
     .opt-inline-mult { font-size: 9px; }
 }
 
