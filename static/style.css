@@ -986,11 +986,17 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .tab-pane.active {
     display: block !important;
 }
+.tab-pane-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
 
 @media (max-width: 600px) {
     .tab-btn {
-        padding: 8px 4px;
-        font-size: 11px;
+        padding: 8px 2px;
+        font-size: 10px;
+        min-width: auto;
     }
 }
 

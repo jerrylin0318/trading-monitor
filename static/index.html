@@ -9,7 +9,7 @@
     <title>Trading Monitor</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css?v=53">
+    <link rel="stylesheet" href="/static/style.css?v=54">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -87,24 +87,121 @@
             </div>
         </div>
 
-        <!-- Tabbed Card: Positions / Orders / Signals / Log -->
+        <!-- Unified Tabbed Card -->
         <div class="card tabbed-card">
             <div class="tab-header">
-                <button class="tab-btn active" data-tab="positions" onclick="switchTab('positions')">📋 持倉</button>
+                <button class="tab-btn active" data-tab="watch" onclick="switchTab('watch')">👁️ 觀察</button>
+                <button class="tab-btn" data-tab="positions" onclick="switchTab('positions')">📋 持倉</button>
                 <button class="tab-btn" data-tab="orders" onclick="switchTab('orders')">📝 掛單</button>
                 <button class="tab-btn" data-tab="signals" onclick="switchTab('signals')">🔔 信號</button>
                 <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 日誌</button>
             </div>
             <div class="tab-content">
+                <!-- Watch Tab -->
+                <div class="tab-pane active" id="tab-watch">
+                    <div class="tab-pane-header">
+                        <button class="btn btn-sm btn-primary" onclick="showAddWatch()">+ 新增</button>
+                    </div>
+                    <!-- Favorites bar -->
+                    <div id="favorites-bar" style="display:none; margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;" id="fav-chips"></div>
+                    </div>
+                    <!-- Add form (hidden by default) -->
+                    <div id="add-watch-form" style="display:none; margin-bottom:16px;">
+                        <!-- Row 1: 標的 + 類型 + 策略方向 -->
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>標的代碼</label>
+                                <input type="text" id="w-symbol" placeholder="SPY, MNQ...">
+                            </div>
+                            <div class="form-group">
+                                <label>類型</label>
+                                <select id="w-sectype">
+                                    <option value="STK">股票 (STK)</option>
+                                    <option value="FUT">期貨 (FUT)</option>
+                                    <option value="IND">指數 (IND)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>方向</label>
+                                <select id="w-direction">
+                                    <option value="LONG">📈 做多</option>
+                                    <option value="SHORT">📉 做空</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>策略</label>
+                                <select id="w-strategy-type" onchange="updateStrategyFields()">
+                                    <option value="MA">MA 均線</option>
+                                    <option value="BB">布林帶</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>週期</label>
+                                <select id="w-timeframe">
+                                    <option value="D">日線</option>
+                                    <option value="W">週線</option>
+                                    <option value="M">月線</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Row 2: 交易所 + 合約月份 + 幣別 -->
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>交易所</label>
+                                <input type="text" id="w-exchange" value="SMART">
+                            </div>
+                            <div class="form-group" id="w-contract-group" style="display:none;">
+                                <label>合約月份</label>
+                                <select id="w-contract"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>幣別</label>
+                                <input type="text" id="w-currency" value="USD">
+                            </div>
+                        </div>
+                        <!-- Row 3: MA + N點 + 按鈕 -->
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>MA 週期</label>
+                                <input type="number" id="w-ma-period" value="21" min="2">
+                            </div>
+                            <div class="form-group" id="w-n-points-group">
+                                <label>N 點</label>
+                                <input type="number" id="w-n-points" value="5" step="0.1" min="0">
+                            </div>
+                            <div class="form-group" id="w-bb-std-group" style="display:none;">
+                                <label>標準差倍數</label>
+                                <input type="number" id="w-bb-std-dev" value="2" step="0.1" min="0.5" max="4">
+                            </div>
+                            <div class="form-group" id="w-confirm-ma-group" style="flex:0;">
+                                <label style="display:flex;align-items:center;gap:4px;">
+                                    <input type="checkbox" id="w-confirm-ma-enabled"> 確認MA
+                                </label>
+                                <input type="number" id="w-confirm-ma-period" value="55" min="2" style="width:60px;" placeholder="週期">
+                            </div>
+                            <div class="form-group" style="flex:0;">
+                                <label>&nbsp;</label>
+                                <div style="display:flex;gap:6px;">
+                                    <button class="btn btn-success btn-sm" onclick="addWatch()">確定</button>
+                                    <button class="btn btn-sm" onclick="hideAddWatch()">取消</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="watch-list">
+                        <div class="empty-state">尚無觀察標的，點擊「+ 新增」開始</div>
+                    </div>
+                </div>
                 <!-- Positions Tab -->
-                <div class="tab-pane active" id="tab-positions">
+                <div class="tab-pane" id="tab-positions">
                     <div id="positions-container">
                         <div class="empty-state">無持倉</div>
                     </div>
                 </div>
                 <!-- Orders Tab -->
                 <div class="tab-pane" id="tab-orders">
-                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                    <div class="tab-pane-header">
                         <button class="btn btn-sm" onclick="refreshOrders()">🔄 刷新</button>
                     </div>
                     <div id="orders-container">
@@ -113,7 +210,7 @@
                 </div>
                 <!-- Signals Tab -->
                 <div class="tab-pane" id="tab-signals">
-                    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                    <div class="tab-pane-header">
                         <button class="btn btn-sm" onclick="clearSignals()">清除</button>
                     </div>
                     <div id="signals-container">
@@ -123,106 +220,6 @@
                 <!-- Log Tab -->
                 <div class="tab-pane" id="tab-logs">
                     <div class="log-container" id="log-container"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Watch List -->
-        <div class="card">
-            <div class="card-header">
-                👁️ 觀察清單
-                <button class="btn btn-sm btn-primary" onclick="showAddWatch()">+ 新增</button>
-            </div>
-            <div class="card-body">
-                <!-- Favorites bar -->
-                <div id="favorites-bar" style="display:none; margin-bottom:12px;">
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;" id="fav-chips"></div>
-                </div>
-                <!-- Add form (hidden by default) -->
-                <div id="add-watch-form" style="display:none; margin-bottom:16px;">
-                    <!-- Row 1: 標的 + 類型 + 策略方向 -->
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>標的代碼</label>
-                            <input type="text" id="w-symbol" placeholder="SPY, MNQ...">
-                        </div>
-                        <div class="form-group">
-                            <label>類型</label>
-                            <select id="w-sectype">
-                                <option value="STK">股票 (STK)</option>
-                                <option value="FUT">期貨 (FUT)</option>
-                                <option value="IND">指數 (IND)</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>方向</label>
-                            <select id="w-direction">
-                                <option value="LONG">📈 做多</option>
-                                <option value="SHORT">📉 做空</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>策略</label>
-                            <select id="w-strategy-type" onchange="updateStrategyFields()">
-                                <option value="MA">MA 均線</option>
-                                <option value="BB">布林帶</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>週期</label>
-                            <select id="w-timeframe">
-                                <option value="D">日線</option>
-                                <option value="W">週線</option>
-                                <option value="M">月線</option>
-                            </select>
-                        </div>
-                    </div>
-                    <!-- Row 2: 交易所 + 合約月份 + 幣別 -->
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>交易所</label>
-                            <input type="text" id="w-exchange" value="SMART">
-                        </div>
-                        <div class="form-group" id="w-contract-group" style="display:none;">
-                            <label>合約月份</label>
-                            <select id="w-contract"></select>
-                        </div>
-                        <div class="form-group">
-                            <label>幣別</label>
-                            <input type="text" id="w-currency" value="USD">
-                        </div>
-                    </div>
-                    <!-- Row 3: MA + N點 + 按鈕 -->
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>MA 週期</label>
-                            <input type="number" id="w-ma-period" value="21" min="2">
-                        </div>
-                        <div class="form-group" id="w-n-points-group">
-                            <label>N 點</label>
-                            <input type="number" id="w-n-points" value="5" step="0.1" min="0">
-                        </div>
-                        <div class="form-group" id="w-bb-std-group" style="display:none;">
-                            <label>標準差倍數</label>
-                            <input type="number" id="w-bb-std-dev" value="2" step="0.1" min="0.5" max="4">
-                        </div>
-                        <div class="form-group" id="w-confirm-ma-group" style="flex:0;">
-                            <label style="display:flex;align-items:center;gap:4px;">
-                                <input type="checkbox" id="w-confirm-ma-enabled"> 確認MA
-                            </label>
-                            <input type="number" id="w-confirm-ma-period" value="55" min="2" style="width:60px;" placeholder="週期">
-                        </div>
-                        <div class="form-group" style="flex:0;">
-                            <label>&nbsp;</label>
-                            <div style="display:flex;gap:6px;">
-                                <button class="btn btn-success btn-sm" onclick="addWatch()">確定</button>
-                                <button class="btn btn-sm" onclick="hideAddWatch()">取消</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div id="watch-list">
-                    <div class="empty-state">尚無觀察標的，點擊「+ 新增」開始</div>
                 </div>
             </div>
         </div>
@@ -271,6 +268,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=53"></script>
+    <script src="/static/app.js?v=54"></script>
 </body>
 </html>
