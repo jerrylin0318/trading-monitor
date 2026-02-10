@@ -253,6 +253,8 @@ let sheetMode = null;
 function openBottomSheet(watchId, mode, title) {
     sheetWatchId = watchId;
     sheetMode = mode;
+    // Track for live chart updates
+    if (mode === 'chart') state.expandedChart = watchId;
     document.getElementById('sheet-title').textContent = title;
     // Hide header buttons - actions moved to content area
     document.getElementById('sheet-refresh-btn').style.display = 'none';
@@ -270,6 +272,9 @@ function closeBottomSheet() {
     if (sheetMode === 'chart' && charts[sheetWatchId]) {
         charts[sheetWatchId].remove();
         delete charts[sheetWatchId];
+        delete chartSeries[sheetWatchId];
+        delete todayCandle[sheetWatchId];
+        state.expandedChart = null;
     }
     sheetWatchId = null;
     sheetMode = null;
@@ -389,6 +394,7 @@ async function renderChartInSheet(watchId) {
             title: `上軌 (${chartData.bb_std_dev}σ)`
         });
         bbUpperSeries.setData(chartData.bb_upper);
+        chartSeries[watchId].bbUpper = bbUpperSeries;
         
         const bbLowerSeries = chart.addLineSeries({
             color: '#8b5cf6', lineWidth: 1,
@@ -396,6 +402,7 @@ async function renderChartInSheet(watchId) {
             title: `下軌 (${chartData.bb_std_dev}σ)`
         });
         bbLowerSeries.setData(chartData.bb_lower);
+        chartSeries[watchId].bbLower = bbLowerSeries;
         
         // Add today's BB from real-time data
         if (data?.bb_upper && data?.bb_lower) {
@@ -416,6 +423,7 @@ async function renderChartInSheet(watchId) {
             title: `確認MA${chartData.confirm_ma_period}`
         });
         confirmMaSeries.setData(chartData.confirm_ma);
+        chartSeries[watchId].confirmMa = confirmMaSeries;
         
         // Add today's confirm MA
         if (data?.confirm_ma_value) {
