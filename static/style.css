@@ -1117,8 +1117,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     }
     
     .nav-icon {
-        font-size: 20px;
-        line-height: 1;
+        width: 22px;
+        height: 22px;
     }
     
     .nav-label {
@@ -1140,4 +1140,169 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     .tab-content {
         padding: 8px;
     }
+}
+
+/* Bottom Sheet */
+.sheet-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1100;
+}
+.sheet-overlay.active {
+    display: block;
+}
+
+.bottom-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 85vh;
+    background: var(--bg-card);
+    border-radius: 16px 16px 0 0;
+    z-index: 1101;
+    transform: translateY(100%);
+    transition: transform 0.3s ease-out;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.bottom-sheet.active {
+    transform: translateY(0);
+}
+
+.sheet-handle {
+    display: flex;
+    justify-content: center;
+    padding: 10px;
+    cursor: pointer;
+}
+.sheet-handle-bar {
+    width: 40px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+}
+
+.sheet-header {
+    display: flex;
+    align-items: center;
+    padding: 0 16px 12px;
+    border-bottom: 1px solid var(--border);
+}
+.sheet-title {
+    flex: 1;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.sheet-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sheet-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Chart in sheet */
+.sheet-content .chart-container {
+    height: 45vh;
+    min-height: 280px;
+    max-height: 400px;
+    margin-bottom: 12px;
+}
+
+@media (max-width: 600px) {
+    .sheet-content .chart-container {
+        height: 60vh;
+        max-height: 550px;
+    }
+}
+
+/* Desktop: make sheet narrower */
+@media (min-width: 601px) {
+    .bottom-sheet {
+        left: 50%;
+        right: auto;
+        width: 600px;
+        max-width: 90vw;
+        transform: translate(-50%, 100%);
+    }
+    .bottom-sheet.active {
+        transform: translate(-50%, 0);
+    }
+}
+
+/* Chart close button (bottom right) */
+.chart-wrapper {
+    position: relative;
+}
+.chart-close-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    padding: 10px 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    z-index: 10;
+}
+.chart-close-btn:active {
+    background: var(--bg-input);
+}
+
+/* Sheet actions bar */
+.sheet-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 0;
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+}
+.sheet-actions .btn {
+    flex: 1;
+}
+
+/* Large button style */
+.btn-lg {
+    padding: 14px 20px !important;
+    font-size: 15px !important;
+    font-weight: 600;
+    border-radius: 10px;
+}
+
+/* Action buttons in exit-actions */
+.exit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+.btn-action {
+    flex: 1;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
+    font-weight: 600;
+    border-radius: 8px;
 }

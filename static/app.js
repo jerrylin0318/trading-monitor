@@ -26,12 +26,8 @@ let lastChartRender = 0;
 
 // Tab switching
 function switchTab(tabName) {
-    // Update top tab buttons
+    // Update buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === tabName);
-    });
-    // Update bottom nav buttons
-    document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
     });
     // Update panes
@@ -46,6 +42,140 @@ function switchTab(tabName) {
 function restoreTab() {
     const saved = localStorage.getItem('activeTab');
     if (saved) switchTab(saved);
+}
+
+// ─── Bottom Sheet ───
+let sheetWatchId = null;
+let sheetMode = null;
+
+function openBottomSheet(watchId, mode, title) {
+    sheetWatchId = watchId;
+    sheetMode = mode;
+    document.getElementById('sheet-title').textContent = title;
+    // Hide header buttons - actions moved to content area
+    document.getElementById('sheet-refresh-btn').style.display = 'none';
+    document.querySelector('.sheet-close').style.display = mode === 'chart' ? 'none' : 'none';
+    document.getElementById('bottom-sheet-overlay').classList.add('active');
+    document.getElementById('bottom-sheet').classList.add('active');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => renderSheetContent(watchId, mode), 50);
+}
+
+function closeBottomSheet() {
+    document.getElementById('bottom-sheet-overlay').classList.remove('active');
+    document.getElementById('bottom-sheet').classList.remove('active');
+    document.body.style.overflow = '';
+    if (sheetMode === 'chart' && charts[sheetWatchId]) {
+        charts[sheetWatchId].remove();
+        delete charts[sheetWatchId];
+    }
+    sheetWatchId = null;
+    sheetMode = null;
+}
+
+async function renderSheetContent(watchId, mode) {
+    const content = document.getElementById('sheet-content');
+    const watch = state.watchList.find(w => w.id === watchId);
+    const data = state.latestData[watchId] || {};
+    
+    if (mode === 'chart') {
+        content.innerHTML = `
+            <div class="chart-wrapper">
+                <div class="chart-container" id="sheet-chart-${watchId}"></div>
+                <button class="chart-close-btn" onclick="closeBottomSheet()">關閉圖表</button>
+            </div>`;
+        setTimeout(() => renderChartInSheet(watchId), 50);
+    } else if (mode === 'options') {
+        const price = data.current_price ? data.current_price.toFixed(2) : '--';
+        content.innerHTML = renderInlineOptions(watch, data, data.options_call || {}, data.options_put || {}, price);
+        if (!standaloneMode) {
+            const expiries = Object.keys(data.options_call || {}).length ? Object.keys(data.options_call) : Object.keys(data.options_put || {});
+            const expiry = data.selected_expiry || expiries[0];
+            if (expiry) api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST').catch(() => {});
+        }
+    }
+}
+
+function refreshSheetContent() {
+    if (sheetWatchId && sheetMode) renderSheetContent(sheetWatchId, sheetMode);
+}
+
+async function renderChartInSheet(watchId) {
+    const container = document.getElementById(`sheet-chart-${watchId}`);
+    if (!container || typeof LightweightCharts === 'undefined') return;
+    
+    let chartData;
+    try {
+        const res = await fetch(`${API}/api/candles/${watchId}`, {
+            headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+        });
+        chartData = await res.json();
+    } catch (e) {
+        container.innerHTML = '<div style="padding:20px;color:var(--text-muted)">載入失敗</div>';
+        return;
+    }
+    
+    if (!chartData.candles?.length) {
+        container.innerHTML = '<div style="padding:20px;color:var(--text-muted)">無K線數據</div>';
+        return;
+    }
+    
+    const chartHeight = container.clientHeight || 350;
+    const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth, height: chartHeight,
+        layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
+        grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        rightPriceScale: { borderColor: '#30363d' },
+        timeScale: { borderColor: '#30363d', timeVisible: true, barSpacing: 10, rightOffset: 30 }
+    });
+    charts[watchId] = chart;
+    
+    // Candlestick series
+    const candleSeries = chart.addCandlestickSeries({
+        upColor: '#238636', downColor: '#da3633',
+        borderUpColor: '#238636', borderDownColor: '#da3633',
+        wickUpColor: '#238636', wickDownColor: '#da3633'
+    });
+    candleSeries.setData(chartData.candles);
+    
+    // MA line (middle line for BB)
+    if (chartData.ma?.length) {
+        const maSeries = chart.addLineSeries({
+            color: '#f0883e', lineWidth: 2,
+            title: chartData.strategy_type === 'BB' ? `中軌MA${chartData.ma_period}` : `MA${chartData.ma_period}`
+        });
+        maSeries.setData(chartData.ma);
+    }
+    
+    // BB upper/lower bands
+    if (chartData.bb_upper?.length && chartData.bb_lower?.length) {
+        const bbUpperSeries = chart.addLineSeries({
+            color: '#8b5cf6', lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            title: `上軌 (${chartData.bb_std_dev}σ)`
+        });
+        bbUpperSeries.setData(chartData.bb_upper);
+        
+        const bbLowerSeries = chart.addLineSeries({
+            color: '#8b5cf6', lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            title: `下軌 (${chartData.bb_std_dev}σ)`
+        });
+        bbLowerSeries.setData(chartData.bb_lower);
+    }
+    
+    // Confirm MA line (if enabled)
+    if (chartData.confirm_ma?.length) {
+        const confirmMaSeries = chart.addLineSeries({
+            color: '#58a6ff', lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            title: `確認MA${chartData.confirm_ma_period}`
+        });
+        confirmMaSeries.setData(chartData.confirm_ma);
+    }
+    
+    chart.timeScale().fitContent();
 }
 
 // ─── Authentication ───
@@ -841,17 +971,10 @@ function renderWatchList() {
                     <span class="trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}" title="${zoneReady ? (zoneActive ? '條件滿足！' : '方向正確，等待價格進入') : '方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
                 </div>
                 <div style="display:flex;gap:4px;">
-                    <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">
-                        ${state.expandedChart === w.id ? '📉' : '📈'}
-                    </button>
-                    ${expanded ? `<button class="btn btn-sm" onclick="updateOptionPrices('${w.id}')" title="更新報價">🔄</button>` : ''}
-                    <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">
-                        ${expanded ? '收起 ▲' : '交易標的 ▼'}
-                    </button>
+                    <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">📈</button>
+                    <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">交易標的</button>
                 </div>
             </div>
-            ${state.expandedChart === w.id ? `<div class="chart-container" id="chart-${w.id}"></div>` : ''}
-            ${expanded ? renderInlineOptions(w, data, callOpts, putOpts, price) : ''}
         </div>`;
     }
     container.innerHTML = html;
@@ -1025,29 +1148,9 @@ function updateLiveCandle(watchId, price) {
 }
 
 async function toggleChart(watchId) {
-    if (state.expandedChart === watchId) {
-        // Collapse chart
-        state.expandedChart = null;
-        if (charts[watchId]) {
-            charts[watchId].remove();
-            delete charts[watchId];
-        }
-        delete chartSeries[watchId];
-        delete todayCandle[watchId];
-    } else {
-        // Expand chart — close other chart first
-        if (state.expandedChart && charts[state.expandedChart]) {
-            charts[state.expandedChart].remove();
-            delete charts[state.expandedChart];
-        }
-        state.expandedChart = watchId;
-    }
-    renderWatchList();
-    
-    // Render chart after DOM update
-    if (state.expandedChart === watchId) {
-        setTimeout(() => renderChart(watchId), 50);
-    }
+    const watch = state.watchList.find(w => w.id === watchId);
+    const tf = watch?.timeframe === 'W' ? '週' : watch?.timeframe === 'M' ? '月' : '日';
+    openBottomSheet(watchId, 'chart', `📈 ${watch?.symbol || ''} ${tf}K線圖`);
 }
 
 async function renderChart(watchId) {
@@ -1234,23 +1337,8 @@ async function renderChart(watchId) {
 }
 
 function toggleExpand(watchId) {
-    if (state.expandedWatch === watchId) {
-        state.expandedWatch = null;
-    } else {
-        state.expandedWatch = watchId;
-        // Refresh current expiry prices when expanding
-        if (!standaloneMode) {
-            const data = state.latestData[watchId];
-            const callKeys = Object.keys(data?.options_call || {});
-            const putKeys = Object.keys(data?.options_put || {});
-            const expiries = callKeys.length ? callKeys : putKeys;
-            const expiry = data?.selected_expiry || expiries[0];
-            if (expiry) {
-                api(`/api/options/prices/${watchId}?expiry=${expiry}`, 'POST').catch(() => {});
-            }
-        }
-    }
-    renderWatchList();
+    const watch = state.watchList.find(w => w.id === watchId);
+    openBottomSheet(watchId, 'options', `⚡ ${watch?.symbol || ''} 交易標的`);
 }
 
 function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
@@ -1355,7 +1443,11 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
                     <option value="+" ${ex.profitDir === '+' || !ex.profitDir ? 'selected' : ''}>+</option>
                     <option value="-" ${ex.profitDir === '-' ? 'selected' : ''}>-</option>
                 </select>
-                <input type="number" id="exit-${watch.id}-profit-pts" value="${ex.profitPts || 0.5}" step="0.1" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','profitPts',this.value)"> 點</span>
+                <input type="number" id="exit-${watch.id}-profit-pts" value="${ex.profitPts || 0.5}" step="0.1" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','profitPts',this.value)">
+                <select id="exit-${watch.id}-profit-unit" onchange="saveExitVal('${watch.id}','profitUnit',this.value)">
+                    <option value="pts" ${ex.profitUnit === 'pts' || !ex.profitUnit ? 'selected' : ''}>點</option>
+                    <option value="pct" ${ex.profitUnit === 'pct' ? 'selected' : ''}>%</option>
+                </select></span>
             </div>
             <div class="exit-option">
                 <label><input type="checkbox" id="exit-${watch.id}-time" ${ex.time ? 'checked' : ''} onchange="saveExitSel('${watch.id}','time',this.checked)"> 2️⃣ 時間平倉</label>
@@ -1390,7 +1482,9 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
                 <label><input type="checkbox" id="exit-${watch.id}-loop" ${ex.loop !== false ? 'checked' : ''} onchange="saveExitSel('${watch.id}','loop',this.checked)"> 🔄 平倉後繼續監控（閉環）</label>
             </div>
             <div class="exit-actions">
-                <button class="btn btn-sm btn-success" onclick="placeOrder('${watch.id}')">📥 市價下單</button>
+                <button class="btn btn-action" onclick="refreshSheetContent()">🔄 更新報價</button>
+                <button class="btn btn-action btn-success" onclick="placeOrder('${watch.id}')">💰 市價下單</button>
+                <button class="btn btn-action" onclick="closeBottomSheet()">關閉</button>
             </div>
         </div>`;
 
@@ -1515,6 +1609,7 @@ async function placeOrder(watchId) {
             enabled: !!ex.profit,
             dir: ex.profitDir || '+',
             pts: parseFloat(ex.profitPts) || 0.5,
+            unit: ex.profitUnit || 'pts',  // 'pts' or 'pct'
         },
         time: {
             enabled: !!ex.time,
@@ -1538,7 +1633,10 @@ async function placeOrder(watchId) {
 
     // Show confirmation
     const exitDesc = [];
-    if (exitConfig.limit.enabled) exitDesc.push(`限價止盈 ${exitConfig.limit.dir}${exitConfig.limit.pts}點`);
+    if (exitConfig.limit.enabled) {
+        const unitLabel = exitConfig.limit.unit === 'pct' ? '%' : '點';
+        exitDesc.push(`限價止盈 ${exitConfig.limit.dir}${exitConfig.limit.pts}${unitLabel}`);
+    }
     if (exitConfig.time.enabled) exitDesc.push(`時間平倉 ${exitConfig.time.value}`);
     if (exitConfig.ma.enabled) exitDesc.push(`均線平倉 ${exitConfig.ma.cond === 'above' ? '高於' : '低於'}MA${exitConfig.ma.dir}${exitConfig.ma.pts}點`);
     if (exitConfig.bb.enabled) {

@@ -9,7 +9,7 @@
     <title>Trading Monitor</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css?v=55">
+    <link rel="stylesheet" href="/static/style.css?v=68">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -241,26 +241,42 @@
     <!-- Bottom Navigation (mobile only) -->
     <nav class="bottom-nav">
         <button class="bottom-nav-btn active" data-tab="watch" onclick="switchTab('watch')">
-            <span class="nav-icon">👁️</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             <span class="nav-label">觀察</span>
         </button>
         <button class="bottom-nav-btn" data-tab="positions" onclick="switchTab('positions')">
-            <span class="nav-icon">📋</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
             <span class="nav-label">持倉</span>
         </button>
         <button class="bottom-nav-btn" data-tab="orders" onclick="switchTab('orders')">
-            <span class="nav-icon">📝</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
             <span class="nav-label">掛單</span>
         </button>
         <button class="bottom-nav-btn" data-tab="signals" onclick="switchTab('signals')">
-            <span class="nav-icon">🔔</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
             <span class="nav-label">信號</span>
         </button>
         <button class="bottom-nav-btn" data-tab="logs" onclick="switchTab('logs')">
-            <span class="nav-icon">📜</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
             <span class="nav-label">日誌</span>
         </button>
     </nav>
+
+    <!-- Bottom Sheet -->
+    <div id="bottom-sheet-overlay" class="sheet-overlay" onclick="closeBottomSheet()"></div>
+    <div id="bottom-sheet" class="bottom-sheet">
+        <div class="sheet-handle" onclick="closeBottomSheet()">
+            <div class="sheet-handle-bar"></div>
+        </div>
+        <div class="sheet-header">
+            <span class="sheet-title" id="sheet-title">標題</span>
+            <button class="btn btn-sm" id="sheet-refresh-btn" style="display:none;" onclick="refreshSheetContent()">🔄</button>
+            <button class="sheet-close" onclick="closeBottomSheet()">✕</button>
+        </div>
+        <div class="sheet-content" id="sheet-content">
+            <!-- Dynamic content goes here -->
+        </div>
+    </div>
 
     <!-- Close Position Modal -->
     <div id="close-modal" class="modal-overlay hidden">
@@ -292,6 +308,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=55"></script>
+    <script src="/static/app.js?v=68"></script>
 </body>
 </html>

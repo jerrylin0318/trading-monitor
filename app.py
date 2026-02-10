@@ -1231,13 +1231,23 @@ async def place_order(req: OrderRequest):
     if exit_cfg.get("limit", {}).get("enabled"):
         limit_dir = exit_cfg["limit"].get("dir", "+")
         limit_pts = float(exit_cfg["limit"].get("pts", 0.5))
+        limit_unit = exit_cfg["limit"].get("unit", "pts")  # 'pts' or 'pct'
         for r in results:
             if r.get("status") in ("Filled", "PreSubmitted", "Submitted") and r.get("avgFillPrice", 0) > 0:
                 fill_price = r["avgFillPrice"]
-                if limit_dir == "+":
-                    limit_price = round(fill_price + limit_pts, 2)
+                if limit_unit == "pct":
+                    # Percentage: e.g., +50% means fill_price * 1.5, round up
+                    import math
+                    if limit_dir == "+":
+                        limit_price = math.ceil(fill_price * (1 + limit_pts / 100))
+                    else:
+                        limit_price = math.floor(fill_price * (1 - limit_pts / 100))
                 else:
-                    limit_price = round(fill_price - limit_pts, 2)
+                    # Points: add/subtract directly
+                    if limit_dir == "+":
+                        limit_price = round(fill_price + limit_pts, 2)
+                    else:
+                        limit_price = round(fill_price - limit_pts, 2)
                 limit_result = await ib.place_limit_order(r["conId"], "SELL", r.get("qty_requested", 1), limit_price)
                 r["exit_limit_order"] = limit_result
 
