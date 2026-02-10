@@ -195,7 +195,7 @@
       "bb_std_dev": 2.0,
       "timeframe": "W",
       "trading_config": {
-        "auto_trade": false,
+        "auto_trade": true,
         "targets": [
           {
             "type": "stk",
@@ -277,5 +277,5 @@
       }
     }
   ],
-  "saved_at": "2026-02-10T00:32:17.379066"
+  "saved_at": "2026-02-10T01:11:47.237528"
 }

@@ -478,7 +478,26 @@ async function renderChartInSheet(watchId) {
         }
     }
     
-    chart.timeScale().fitContent();
+    // Restore saved zoom state or fit content
+    const savedZoom = localStorage.getItem(`chartZoom_${timeframe}`);
+    if (savedZoom) {
+        try {
+            const zoom = JSON.parse(savedZoom);
+            if (zoom.barSpacing) chart.timeScale().applyOptions({ barSpacing: zoom.barSpacing });
+            if (zoom.scrollPosition) chart.timeScale().scrollToPosition(zoom.scrollPosition, false);
+        } catch (e) {
+            chart.timeScale().fitContent();
+        }
+    } else {
+        chart.timeScale().fitContent();
+    }
+    
+    // Save zoom state on change
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+        const barSpacing = chart.timeScale().options().barSpacing;
+        const scrollPosition = chart.timeScale().scrollPosition();
+        localStorage.setItem(`chartZoom_${timeframe}`, JSON.stringify({ barSpacing, scrollPosition }));
+    });
 }
 
 // ─── Authentication ───
