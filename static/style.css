@@ -1441,3 +1441,59 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     background: var(--bg-tertiary);
     border-color: var(--text-muted);
 }
+
+/* Help Modal */
+.help-modal {
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.help-content {
+    padding: 16px;
+}
+.help-content section {
+    margin-bottom: 20px;
+}
+.help-content h4 {
+    margin: 0 0 12px 0;
+    color: var(--text-primary);
+    font-size: 15px;
+}
+.help-content p {
+    margin: 8px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+.help-table {
+    width: 100%;
+    font-size: 13px;
+    border-collapse: collapse;
+}
+.help-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+}
+.help-table td:first-child {
+    width: 140px;
+    color: var(--text-primary);
+}
+.help-table td:last-child {
+    color: var(--text-secondary);
+}
+.help-table code {
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.help-flow {
+    background: var(--bg-tertiary);
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+    text-align: center;
+    margin-top: 12px;
+}

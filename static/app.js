@@ -113,6 +113,14 @@ function closeSettings() {
     document.getElementById('settings-modal').classList.add('hidden');
 }
 
+function openHelp() {
+    document.getElementById('help-modal').classList.remove('hidden');
+}
+
+function closeHelp() {
+    document.getElementById('help-modal').classList.add('hidden');
+}
+
 function collectSettingsFromUI() {
     return {
         checkStk: document.getElementById('cfg-check-stk').checked,

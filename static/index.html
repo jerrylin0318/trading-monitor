@@ -9,7 +9,7 @@
     <title>Trading Monitor</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css?v=70.3">
+    <link rel="stylesheet" href="/static/style.css?v=73">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -54,6 +54,7 @@
                 <span style="color:var(--border)">|</span>
                 <button class="btn btn-sm" id="btn-demo" onclick="toggleDemoMode()" title="Demo模式">🎮</button>
                 <button class="btn btn-sm" onclick="openSettings()" title="設定">⚙️</button>
+                <button class="btn btn-sm" onclick="openHelp()" title="說明">❓</button>
                 <button class="btn btn-sm" onclick="logout()" title="登出">🚪</button>
             </div>
         </div>
@@ -452,6 +453,51 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=83"></script>
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal-overlay hidden">
+        <div class="modal help-modal">
+            <div class="modal-header">
+                <h3>❓ 使用說明</h3>
+                <button class="btn btn-sm" onclick="closeHelp()">✕</button>
+            </div>
+            <div class="modal-body help-content">
+                <section>
+                    <h4>📊 交易狀態說明</h4>
+                    <table class="help-table">
+                        <tr><td>📊 <code>filled</code></td><td>持倉中，無掛單</td></tr>
+                        <tr><td>🎯 <code>limit_pending</code></td><td>持倉中，已掛限價止盈單</td></tr>
+                        <tr><td>⏳ <code>exiting</code></td><td>市價平倉執行中</td></tr>
+                        <tr><td>✅ <code>closed</code></td><td>已平倉</td></tr>
+                    </table>
+                    <div class="help-flow">
+                        信號觸發 → 市價買入 → 掛限價止盈<br>
+                        ↓<br>
+                        🎯 limit_pending (等待止盈單成交)<br>
+                        ↓<br>
+                        時間/MA/BB 條件觸發 → 取消止盈單 → 市價平倉<br>
+                        ↓<br>
+                        ⏳ exiting → ✅ closed
+                    </div>
+                </section>
+                <section>
+                    <h4>📈 K線週期</h4>
+                    <table class="help-table">
+                        <tr><td><code>H</code></td><td>小時線 (1個月數據)</td></tr>
+                        <tr><td><code>D</code></td><td>日線 (6個月數據)</td></tr>
+                        <tr><td><code>W</code></td><td>週線 (2年數據)</td></tr>
+                        <tr><td><code>M</code></td><td>月線 (5年數據)</td></tr>
+                    </table>
+                </section>
+                <section>
+                    <h4>🎯 策略類型</h4>
+                    <p><strong>MA 策略</strong>：價格觸及 MA ± N點 時觸發信號</p>
+                    <p><strong>BB 策略</strong>：價格觸及布林帶上/下軌 ± 緩衝點 時觸發信號</p>
+                    <p><strong>確認 MA</strong>：只有當確認 MA 方向正確時才觸發（做多=上升，做空=下降）</p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=84"></script>
 </body>
 </html>
