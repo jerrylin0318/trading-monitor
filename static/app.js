@@ -1263,7 +1263,6 @@ function renderWatchList() {
                     <span class="strategy-badge ${stratClass}">${stratLabel}</span>
                     ${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span>
                     <span class="phase-badge ${phaseClass}">${phaseStatus}</span>
-                    <span class="phase-badge" style="background:${w.trading_config?.auto_trade ? 'var(--green)' : 'var(--text-muted)'};color:#fff">${w.trading_config?.auto_trade ? '自動交易' : '手動交易'}</span>
                 </div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
