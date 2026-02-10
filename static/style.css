@@ -1393,3 +1393,13 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     color: #fff;
 }
 
+
+/* Auto-trade button states */
+.btn-icon.btn-auto-on {
+    background: var(--green);
+    color: #fff;
+}
+.btn-icon.btn-auto-off {
+    background: var(--bg-tertiary);
+    opacity: 0.5;
+}

@@ -1269,8 +1269,8 @@ function renderWatchList() {
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
                     </button>
-                    <button class="btn btn-sm btn-icon ${w.trading_config?.auto_trade ? 'btn-active' : ''}" onclick="toggleAutoTrade('${w.id}')" title="${w.trading_config?.auto_trade ? '暫停自動下單' : '啟用自動下單'}">
-                        ${w.trading_config?.auto_trade ? '🤖' : '🚫'}
+                    <button class="btn btn-sm btn-icon ${w.trading_config?.auto_trade ? 'btn-auto-on' : 'btn-auto-off'}" onclick="toggleAutoTrade('${w.id}')" title="${w.trading_config?.auto_trade ? '點擊關閉自動下單' : '點擊開啟自動下單'}">
+                        🤖
                     </button>
                     <button class="btn btn-sm btn-icon btn-danger" onclick="removeWatch('${w.id}')" title="移除">🗑</button>
                 </div>
