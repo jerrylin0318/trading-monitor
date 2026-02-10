@@ -22,6 +22,7 @@ let state = {
 const charts = {};        // { watchId: chart }
 const chartSeries = {};   // { watchId: { candle, ma } }
 const todayCandle = {};   // { watchId: { time, open, high, low, close } }
+const chartTimeframes = {}; // { watchId: 'D' | 'W' | 'M' }
 let lastChartRender = 0;
 
 // Tab switching
@@ -274,6 +275,7 @@ function closeBottomSheet() {
         delete charts[sheetWatchId];
         delete chartSeries[sheetWatchId];
         delete todayCandle[sheetWatchId];
+        delete chartTimeframes[sheetWatchId];
         state.expandedChart = null;
     }
     sheetWatchId = null;
@@ -348,24 +350,58 @@ async function renderChartInSheet(watchId) {
     
     // Store series reference for live updates
     chartSeries[watchId] = { candle: candleSeries, ma: null };
+    const timeframe = chartData.timeframe || 'D';
+    chartTimeframes[watchId] = timeframe;  // Store for live updates
     
-    // Add today's candle from real-time OHLC data
+    // Add/update current period candle from real-time OHLC data
     const data = state.latestData[watchId];
     if (data?.current_price) {
-        const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+        const now = new Date();
+        let currentPeriodTime;
+        
+        if (timeframe === 'W') {
+            // Weekly: start of current week (Monday 00:00 UTC)
+            const day = now.getUTCDay();
+            const diff = day === 0 ? 6 : day - 1; // Monday = 0
+            const monday = new Date(now);
+            monday.setUTCDate(now.getUTCDate() - diff);
+            monday.setUTCHours(0, 0, 0, 0);
+            currentPeriodTime = Math.floor(monday.getTime() / 1000);
+        } else if (timeframe === 'M') {
+            // Monthly: start of current month
+            const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+            currentPeriodTime = Math.floor(monthStart.getTime() / 1000);
+        } else {
+            // Daily: start of today
+            currentPeriodTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+        }
+        
         const lastCandle = chartData.candles[chartData.candles.length - 1];
-        if (lastCandle && lastCandle.time < todayTime) {
-            // Use IB's day OHLC if available
-            const dayOpen = data.day_open || data.current_price;
-            const dayHigh = data.day_high || data.current_price;
-            const dayLow = data.day_low || data.current_price;
+        const dayOpen = data.day_open || data.current_price;
+        const dayHigh = data.day_high || data.current_price;
+        const dayLow = data.day_low || data.current_price;
+        
+        if (lastCandle && lastCandle.time === currentPeriodTime) {
+            // Update existing current period candle with today's data
             todayCandle[watchId] = {
-                time: todayTime,
+                time: currentPeriodTime,
+                open: lastCandle.open,  // Keep original open
+                high: Math.max(lastCandle.high, dayHigh),
+                low: Math.min(lastCandle.low, dayLow),
+                close: data.current_price,
+            };
+        } else if (lastCandle && lastCandle.time < currentPeriodTime) {
+            // Create new candle for current period
+            todayCandle[watchId] = {
+                time: currentPeriodTime,
                 open: dayOpen,
                 high: dayHigh,
                 low: dayLow,
                 close: data.current_price,
             };
+        }
+        
+        if (todayCandle[watchId]) {
             candleSeries.update(todayCandle[watchId]);
         }
     }
@@ -1488,47 +1524,64 @@ async function updateOptionPrices(watchId) {
 
 // ─── Chart Functions ───
 
-// Update today's live candle and MA with new price
+// Update current period's live candle and MA with new price
 function updateLiveCandle(watchId, price) {
     if (!price || !chartSeries[watchId]?.candle) return;
     
-    const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
     const data = state.latestData[watchId];
+    const timeframe = chartTimeframes[watchId] || 'D';
+    
+    // Calculate current period start time
+    const now = new Date();
+    let currentPeriodTime;
+    if (timeframe === 'W') {
+        const day = now.getUTCDay();
+        const diff = day === 0 ? 6 : day - 1;
+        const monday = new Date(now);
+        monday.setUTCDate(now.getUTCDate() - diff);
+        monday.setUTCHours(0, 0, 0, 0);
+        currentPeriodTime = Math.floor(monday.getTime() / 1000);
+    } else if (timeframe === 'M') {
+        const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        currentPeriodTime = Math.floor(monthStart.getTime() / 1000);
+    } else {
+        currentPeriodTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+    }
     
     // Update live MA point (middle line for BB)
     if (data?.ma_value && chartSeries[watchId]?.ma) {
-        chartSeries[watchId].ma.update({ time: todayTime, value: data.ma_value });
+        chartSeries[watchId].ma.update({ time: currentPeriodTime, value: data.ma_value });
     }
     
     // Update live BB bands
     if (data?.bb_upper && chartSeries[watchId]?.bbUpper) {
-        chartSeries[watchId].bbUpper.update({ time: todayTime, value: data.bb_upper });
+        chartSeries[watchId].bbUpper.update({ time: currentPeriodTime, value: data.bb_upper });
     }
     if (data?.bb_lower && chartSeries[watchId]?.bbLower) {
-        chartSeries[watchId].bbLower.update({ time: todayTime, value: data.bb_lower });
+        chartSeries[watchId].bbLower.update({ time: currentPeriodTime, value: data.bb_lower });
     }
     
     // Update live confirm MA point
     if (data?.confirm_ma_value && chartSeries[watchId]?.confirmMa) {
-        chartSeries[watchId].confirmMa.update({ time: todayTime, value: data.confirm_ma_value });
+        chartSeries[watchId].confirmMa.update({ time: currentPeriodTime, value: data.confirm_ma_value });
     }
     
-    // Use day OHLC from IB if available, otherwise track locally
+    // Use day OHLC from IB if available
     const dayOpen = data?.day_open || price;
     const dayHigh = data?.day_high || price;
     const dayLow = data?.day_low || price;
     
-    if (!todayCandle[watchId] || todayCandle[watchId].time < todayTime) {
-        // New day - create new candle with IB's OHLC
+    if (!todayCandle[watchId] || todayCandle[watchId].time < currentPeriodTime) {
+        // New period - create new candle
         todayCandle[watchId] = {
-            time: todayTime,
+            time: currentPeriodTime,
             open: dayOpen,
             high: dayHigh,
             low: dayLow,
             close: price,
         };
     } else {
-        // Update existing candle - use IB's high/low, update close
+        // Update existing candle
         todayCandle[watchId].close = price;
         todayCandle[watchId].high = Math.max(todayCandle[watchId].high, dayHigh);
         todayCandle[watchId].low = Math.min(todayCandle[watchId].low, dayLow);

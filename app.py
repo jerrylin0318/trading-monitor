@@ -1278,6 +1278,7 @@ async def get_candles(watch_id: str):
         "direction": watch.direction,
         "trigger_low": trigger_low if trigger_low else (threshold.trigger_low if threshold else None),
         "trigger_high": trigger_high if trigger_high else (threshold.trigger_high if threshold else None),
+        "timeframe": watch.timeframe,  # D=日, W=週, M=月
     }
 
 
