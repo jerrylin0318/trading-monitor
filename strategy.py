@@ -545,8 +545,8 @@ class StrategyEngine:
         # Check if price is in trigger zone
         in_zone = trigger_low <= price <= trigger_high
         
-        # Check confirmation MA condition (if enabled, only for MA strategy)
-        if cache.strategy_type == "MA" and not confirm_ma_ok:
+        # Check confirmation MA condition (if enabled, for both MA and BB strategies)
+        if not confirm_ma_ok:
             # Confirmation MA direction doesn't match — don't trigger
             return None
 
