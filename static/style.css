@@ -1403,3 +1403,27 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     background: var(--bg-tertiary);
     opacity: 0.5;
 }
+
+/* Toggle badge (clickable status labels) */
+.toggle-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+.toggle-badge:hover {
+    opacity: 0.8;
+    transform: scale(1.02);
+}
+.toggle-badge.toggle-on {
+    background: var(--green);
+    color: #fff;
+}
+.toggle-badge.toggle-off {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}

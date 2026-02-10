@@ -1262,15 +1262,14 @@ function renderWatchList() {
                 <div class="watch-symbol">
                     <span class="strategy-badge ${stratClass}">${stratLabel}</span>
                     ${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span>
-                    <span class="phase-badge ${phaseClass}">${phaseStatus}</span>
                 </div>
                 <div class="watch-actions">
-                    <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
-                        ${w.enabled ? '⏸' : '▶️'}
-                    </button>
-                    <button class="btn btn-sm btn-icon ${w.trading_config?.auto_trade ? 'btn-auto-on' : 'btn-auto-off'}" onclick="toggleAutoTrade('${w.id}')" title="${w.trading_config?.auto_trade ? '點擊關閉自動下單' : '點擊開啟自動下單'}">
-                        🤖
-                    </button>
+                    <span class="toggle-badge ${w.enabled ? 'toggle-on' : 'toggle-off'}" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '點擊停用監控' : '點擊啟用監控'}">
+                        ${w.enabled ? '監控中' : '已停用'}
+                    </span>
+                    <span class="toggle-badge ${w.trading_config?.auto_trade ? 'toggle-on' : 'toggle-off'}" onclick="toggleAutoTrade('${w.id}')" title="${w.trading_config?.auto_trade ? '點擊關閉自動' : '點擊開啟自動'}">
+                        ${w.trading_config?.auto_trade ? '自動' : '手動'}
+                    </span>
                     <button class="btn btn-sm btn-icon btn-danger" onclick="removeWatch('${w.id}')" title="移除">🗑</button>
                 </div>
             </div>
