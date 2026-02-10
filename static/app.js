@@ -915,6 +915,22 @@ async function toggleWatch(id) {
     renderWatchList();
 }
 
+async function toggleAutoTrade(id) {
+    const item = state.watchList.find(w => w.id === id);
+    if (!item) return;
+    
+    // Toggle auto_trade in trading_config
+    const currentConfig = item.trading_config || { auto_trade: false, targets: [], exit: {} };
+    const newAutoTrade = !currentConfig.auto_trade;
+    const newConfig = { ...currentConfig, auto_trade: newAutoTrade };
+    
+    await api(`/api/watch/${id}`, 'PUT', { trading_config: newConfig });
+    item.trading_config = newConfig;
+    renderWatchList();
+    
+    log(`${item.symbol} 自動下單: ${newAutoTrade ? '已啟用 🤖' : '已暫停 🚫'}`, newAutoTrade ? 'success' : 'info');
+}
+
 async function clearSignals() {
     await api('/api/signals', 'DELETE');
     state.signals = [];
@@ -1251,6 +1267,9 @@ function renderWatchList() {
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
                         ${w.enabled ? '⏸' : '▶️'}
+                    </button>
+                    <button class="btn btn-sm btn-icon ${w.trading_config?.auto_trade ? 'btn-active' : ''}" onclick="toggleAutoTrade('${w.id}')" title="${w.trading_config?.auto_trade ? '暫停自動下單' : '啟用自動下單'}">
+                        ${w.trading_config?.auto_trade ? '🤖' : '🚫'}
                     </button>
                     <button class="btn btn-sm btn-icon btn-danger" onclick="removeWatch('${w.id}')" title="移除">🗑</button>
                 </div>
