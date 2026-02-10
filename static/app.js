@@ -724,8 +724,14 @@ function handleMessage(msg) {
         case 'trade_update': {
             const t = msg.trade;
             if (t) {
-                const emoji = t.status === 'closed' ? '✅' : t.status === 'exiting' ? '⏳' : '📊';
-                log(`${emoji} 交易 ${t.symbol} [${t.id}]: ${t.status}`, t.status === 'closed' ? 'success' : 'info');
+                const statusMap = {
+                    'filled': { emoji: '📊', label: '持倉中' },
+                    'limit_pending': { emoji: '🎯', label: '掛單中' },
+                    'exiting': { emoji: '⏳', label: '平倉中' },
+                    'closed': { emoji: '✅', label: '已平倉' },
+                };
+                const st = statusMap[t.status] || { emoji: '❓', label: t.status };
+                log(`${st.emoji} 交易 ${t.symbol} [${t.id}]: ${st.label}`, t.status === 'closed' ? 'success' : 'info');
                 if (t.status === 'closed' || t.status === 'exiting') {
                     showToast(`${t.symbol} 已平倉`, 'sell');
                 }

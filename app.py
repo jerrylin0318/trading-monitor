@@ -364,6 +364,10 @@ async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
                     except Exception as e:
                         logger.error("Failed to place limit exit: %s", e)
         
+        # Determine status based on whether limit exit orders were placed
+        has_limit_exit = any(o.get("exit_limit_order") for o in orders)
+        trade_status = "limit_pending" if has_limit_exit else "filled"
+        
         # Create active trade
         trade = {
             "id": trade_id,
@@ -372,13 +376,13 @@ async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
             "direction": signal.signal_type,
             "orders": orders,
             "exit": exit_cfg,
-            "status": "filled",
+            "status": trade_status,
             "entry_time": datetime.now().isoformat(),
             "entry_price": signal.price,
         }
         _active_trades[trade_id] = trade
         await broadcast({"type": "trade_update", "trade": trade})
-        logger.info("📊 Trade created: %s with %d orders", trade_id, len(orders))
+        logger.info("📊 Trade created: %s with %d orders, status=%s", trade_id, len(orders), trade_status)
 
 
 async def _init_new_watch(watch):
@@ -641,7 +645,7 @@ async def monitor_loop():
 
             # ── Exit strategy monitoring ──
             for trade_id, trade in list(_active_trades.items()):
-                if trade["status"] not in ("filled", "exiting"):
+                if trade["status"] not in ("filled", "limit_pending", "exiting"):
                     continue
 
                 exit_cfg = trade.get("exit", {})
@@ -1461,6 +1465,7 @@ async def place_order(req: OrderRequest):
 
     # If limit exit enabled, place limit orders for each filled order
     exit_cfg = req.exit
+    has_limit_exit = False
     if exit_cfg.get("limit", {}).get("enabled"):
         limit_dir = exit_cfg["limit"].get("dir", "+")
         limit_pts = float(exit_cfg["limit"].get("pts", 0.5))
@@ -1483,9 +1488,14 @@ async def place_order(req: OrderRequest):
                         limit_price = round(fill_price - limit_pts, 2)
                 limit_result = await ib.place_limit_order(r["conId"], "SELL", r.get("qty_requested", 1), limit_price)
                 r["exit_limit_order"] = limit_result
+                has_limit_exit = True
+    
+    # Update status based on whether limit exit orders were placed
+    if has_limit_exit:
+        trade["status"] = "limit_pending"
 
     await broadcast({"type": "trade_update", "trade": trade})
-    logger.info("Order placed: trade=%s, %d items for %s", trade_id, len(results), watch.symbol)
+    logger.info("Order placed: trade=%s, %d items for %s, status=%s", trade_id, len(results), watch.symbol, trade["status"])
     return {"ok": True, "trade_id": trade_id, "orders": results}
 
 
