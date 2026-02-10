@@ -206,29 +206,27 @@ async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
         logger.info("Auto-trade disabled for %s, skipping execution", watch.symbol)
         return
     
-    targets = config.get("targets", [])
+    targets = config.get("targets", {})
     if not targets:
         logger.info("No trading targets configured for %s", watch.symbol)
         return
     
-    logger.info("🤖 Auto-executing trade for %s: %s signal, %d targets",
-               watch.symbol, signal.signal_type, len(targets))
+    # Count enabled targets
+    enabled_count = sum(1 for v in targets.values() if v.get("enabled"))
+    logger.info("🤖 Auto-executing trade for %s: %s signal, %d enabled targets",
+               watch.symbol, signal.signal_type, enabled_count)
     
     # Determine which option side based on signal
-    # BUY signal (price touching MA from above, going up) → buy Calls
-    # SELL signal (price touching MA from below, going down) → buy Puts
+    # BUY signal → buy Calls; SELL signal → buy Puts
     option_side = "call" if signal.signal_type == "BUY" else "put"
-    right = "C" if signal.signal_type == "BUY" else "P"
     
     order_items = []
     
-    for target in targets:
-        t_type = target.get("type")  # "stk", "call", "put"
-        offset = target.get("offset", 0)  # OTM offset (0=ATM, 1=OTM1, etc.)
-        amount = target.get("amount", 0)
-        qty = target.get("qty", 0)
-        
-        if t_type == "stk":
+    for key, target in targets.items():
+        if not target.get("enabled"):
+            continue
+            
+        if key == "stk":
             # Trade underlying (futures/stock)
             if not underlying_info or not underlying_info.get("conId"):
                 logger.warning("No underlying info for STK target")
@@ -237,12 +235,12 @@ async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
             con_id = underlying_info["conId"]
             multiplier = underlying_info.get("multiplier", 1)
             price = underlying_info.get("price", 0)
+            qty = target.get("qty", 1)
+            amount = target.get("amount", 0)
             
             if watch.sec_type == "FUT":
-                # Futures: use direct qty
                 order_qty = qty if qty > 0 else 1
             else:
-                # Stock: calculate from amount
                 if price > 0 and amount > 0:
                     order_qty = int(amount / price)
                 else:
@@ -259,13 +257,16 @@ async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
                 })
                 logger.info("  → STK: qty=%d @ %.2f", order_qty, price)
         
-        elif t_type in ("call", "put"):
+        elif key.startswith("call_") or key.startswith("put_"):
+            # Parse key: "call_1" → type="call", offset=1
+            parts = key.split("_")
+            t_type = parts[0]  # "call" or "put"
+            offset = int(parts[1]) if len(parts) > 1 else 0
+            
             # Only execute matching option side
-            # For BUY signal: only execute call targets
-            # For SELL signal: only execute put targets
             if (signal.signal_type == "BUY" and t_type != "call") or \
                (signal.signal_type == "SELL" and t_type != "put"):
-                logger.info("  → Skip %s (signal is %s)", t_type.upper(), signal.signal_type)
+                logger.info("  → Skip %s (signal is %s)", key, signal.signal_type)
                 continue
             
             # Get option from cache
@@ -279,15 +280,15 @@ async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
             opt = raw_options[offset]
             ask = opt.get("ask", 0)
             multiplier = opt.get("multiplier", 100)
+            amount = target.get("amount", 0)
             
             if ask <= 0 or amount <= 0:
                 logger.warning("Invalid ask (%.2f) or amount (%.2f)", ask, amount)
                 continue
             
-            # Calculate quantity: amount / (ask * multiplier)
             order_qty = int(amount / (ask * multiplier))
             if order_qty <= 0:
-                order_qty = 1  # Minimum 1 contract
+                order_qty = 1
             
             order_items.append({
                 "conId": opt.get("conId"),
@@ -827,19 +828,24 @@ app = FastAPI(title="Trading Monitor", lifespan=lifespan)
 
 
 # --- Pydantic models ---
-class TradingTarget(BaseModel):
-    """Single trading target (option or underlying)."""
-    type: str  # "stk" | "call" | "put"
-    offset: int = 0  # 0=ATM, 1=OTM1, 2=OTM2, etc. (only for options)
-    amount: float = 0  # USD amount (for options/stocks)
-    qty: int = 0  # Direct quantity (for futures underlying)
-
-
 class TradingConfig(BaseModel):
-    """Trading configuration stored with each watch item."""
+    """Trading configuration stored with each watch item.
+    
+    targets format:
+    {
+        "stk": { "enabled": false, "qty": 1 },
+        "call_0": { "enabled": false, "amount": 5000 },  # ATM
+        "call_1": { "enabled": true, "amount": 5000 },   # OTM1
+        "call_2": { "enabled": false, "amount": 5000 },  # OTM2
+        ...
+        "put_0": { "enabled": false, "amount": 5000 },
+        "put_1": { "enabled": true, "amount": 5000 },
+        ...
+    }
+    """
     auto_trade: bool = True
-    targets: List[TradingTarget] = []
-    exit: Dict[str, Any] = {}  # {limit: {...}, time: {...}, ma: {...}, bb: {...}, loop: bool}
+    targets: Dict[str, Any] = {}
+    exit: Dict[str, Any] = {}  # {limit: {...}, time: {...}, loop: bool}
 
 
 class OrderRequest(BaseModel):
@@ -1023,7 +1029,7 @@ async def add_watch(item: WatchItemCreate):
     if item.trading_config:
         trading_cfg = {
             "auto_trade": item.trading_config.auto_trade,
-            "targets": [t.model_dump() for t in item.trading_config.targets],
+            "targets": item.trading_config.targets,  # Now a dict: { "stk": {...}, "call_1": {...}, ... }
             "exit": item.trading_config.exit,
         }
     

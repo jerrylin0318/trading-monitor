@@ -11,7 +11,7 @@ let state = {
     expandedWatch: null,
     expandedChart: null,  // watch_id of expanded chart
     signals: [],
-    optSelections: {},  // { watchId: { optId: { checked, amount }, exitProfit: bool, ... } }
+    // optSelections removed - now using watch.trading_config as single source of truth
     latestData: {},
     account: {},
     positions: [],
@@ -159,100 +159,25 @@ function saveSettings() {
 }
 
 function applySettingsToAll() {
+    // Settings now only apply to NEW watches (trading_config is set at creation)
+    // This function just saves the defaults and applies enabled state
     const settings = collectSettingsFromUI();
     
-    // Also save as default
+    // Save as default for new watches
     localStorage.setItem('tradingSettings', JSON.stringify(settings));
     
-    // Apply to all existing watches' optSelections
+    // Apply watch enabled state to existing watches
     for (const w of state.watchList) {
-        // Reset optSelections for this watch (clear old option checks)
-        state.optSelections[w.id] = {
-            // Keep stk settings
-            stk: { checked: settings.checkStk, amount: settings.futQty },
-            // Apply exit settings
-            exit: {
-                profit: settings.exitProfit,
-                profitDir: settings.exitProfitDir,
-                profitPts: settings.exitProfitPts,
-                profitUnit: settings.exitProfitUnit,
-                time: settings.exitTime,
-                timeVal: settings.exitTimeVal,
-                ma: settings.exitMa,
-                maCond: settings.exitMaCond,
-                maDir: settings.exitMaDir,
-                maPts: settings.exitMaPts,
-                bb: settings.exitBb,
-                bbCond: settings.exitBbCond,
-                bbTarget: settings.exitBbTarget,
-                bbDir: settings.exitBbDir,
-                bbPts: settings.exitBbPts,
-                loop: settings.exitLoop
-            },
-            // Update option defaults for this watch
-            _optDefaults: {
-                checkOpt1: settings.checkOpt1,
-                checkOpt2: settings.checkOpt2,
-                checkOpt3: settings.checkOpt3,
-                checkOpt4: settings.checkOpt4,
-                checkOpt5: settings.checkOpt5,
-                optAmount: settings.optAmount
-            }
-        };
-        
-        // Apply watch enabled state
         if (settings.watchState === 'paused' && w.enabled) {
-            api(`/api/watch/${w.id}`, 'PUT', { ...w, enabled: false }).catch(() => {});
+            api(`/api/watch/${w.id}`, 'PUT', { enabled: false }).catch(() => {});
         } else if (settings.watchState === 'enabled' && !w.enabled) {
-            api(`/api/watch/${w.id}`, 'PUT', { ...w, enabled: true }).catch(() => {});
+            api(`/api/watch/${w.id}`, 'PUT', { enabled: true }).catch(() => {});
         }
     }
-    localStorage.setItem('optSelections', JSON.stringify(state.optSelections));
+    
     closeSettings();
     renderWatchList();
-    log(`已套用配置至 ${state.watchList.length} 個觀察項目，並儲存為預設`, 'success');
-}
-
-// Apply default settings when initializing optSelections for a new watch
-function applyDefaultSettings(watchId) {
-    const settings = getSettings();
-    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
-    const sel = state.optSelections[watchId];
-    
-    // Record option check defaults at creation time (won't change later)
-    sel._optDefaults = {
-        checkOpt1: settings.checkOpt1,
-        checkOpt2: settings.checkOpt2,
-        checkOpt3: settings.checkOpt3,
-        checkOpt4: settings.checkOpt4,
-        checkOpt5: settings.checkOpt5,
-        optAmount: settings.optAmount
-    };
-    
-    // Apply exit settings
-    sel.exit = {
-        profit: settings.exitProfit,
-        profitDir: settings.exitProfitDir,
-        profitPts: settings.exitProfitPts,
-        profitUnit: settings.exitProfitUnit,
-        time: settings.exitTime,
-        timeVal: settings.exitTimeVal,
-        ma: settings.exitMa,
-        maCond: settings.exitMaCond,
-        maDir: settings.exitMaDir,
-        maPts: settings.exitMaPts,
-        bb: settings.exitBb,
-        bbCond: settings.exitBbCond,
-        bbTarget: settings.exitBbTarget,
-        bbDir: settings.exitBbDir,
-        bbPts: settings.exitBbPts,
-        loop: settings.exitLoop
-    };
-    
-    // Apply stk check
-    sel.stk = { checked: settings.checkStk, amount: settings.futQty };
-    
-    return settings;
+    log(`已儲存預設配置（僅套用於新建監控）`, 'success');
 }
 
 // ─── Bottom Sheet ───
@@ -903,51 +828,47 @@ function buildTradingConfig() {
     const autoTrade = document.getElementById('w-auto-trade')?.checked ?? true;
     const amount = parseFloat(document.getElementById('w-t-amount')?.value) || 5000;
     
-    const targets = [];
+    // New format: targets as dict { "stk": {...}, "call_0": {...}, ... }
+    const targets = {};
     
     // STK (underlying futures)
-    if (document.getElementById('w-t-stk')?.checked) {
-        const qty = parseInt(document.getElementById('w-t-stk-qty')?.value) || 1;
-        targets.push({ type: 'stk', offset: 0, amount: 0, qty });
-    }
+    const stkQty = parseInt(document.getElementById('w-t-stk-qty')?.value) || 1;
+    targets.stk = {
+        enabled: document.getElementById('w-t-stk')?.checked ?? false,
+        qty: stkQty,
+        amount: 0,
+    };
     
-    // Calls
+    // Calls (ATM=0, OTM1=1, OTM2=2, ...)
     for (let i = 0; i <= 4; i++) {
-        if (document.getElementById(`w-t-call-${i}`)?.checked) {
-            targets.push({ type: 'call', offset: i, amount, qty: 0 });
-        }
+        targets[`call_${i}`] = {
+            enabled: document.getElementById(`w-t-call-${i}`)?.checked ?? false,
+            amount,
+        };
     }
     
     // Puts
     for (let i = 0; i <= 4; i++) {
-        if (document.getElementById(`w-t-put-${i}`)?.checked) {
-            targets.push({ type: 'put', offset: i, amount, qty: 0 });
-        }
+        targets[`put_${i}`] = {
+            enabled: document.getElementById(`w-t-put-${i}`)?.checked ?? false,
+            amount,
+        };
     }
     
     // Exit config
-    const exitConfig = {};
-    
-    // Limit take-profit
-    if (document.getElementById('w-exit-profit')?.checked) {
-        exitConfig.limit = {
-            enabled: true,
+    const exitConfig = {
+        limit: {
+            enabled: document.getElementById('w-exit-profit')?.checked ?? false,
             dir: document.getElementById('w-exit-profit-dir')?.value || '+',
             pts: parseFloat(document.getElementById('w-exit-profit-pts')?.value) || 50,
-            unit: document.getElementById('w-exit-profit-unit')?.value || '%',
-        };
-    }
-    
-    // Time exit
-    if (document.getElementById('w-exit-time')?.checked) {
-        exitConfig.time = {
-            enabled: true,
+            unit: document.getElementById('w-exit-profit-unit')?.value || 'pct',
+        },
+        time: {
+            enabled: document.getElementById('w-exit-time')?.checked ?? false,
             value: document.getElementById('w-exit-time-val')?.value || '15:30',
-        };
-    }
-    
-    // Loop (re-arm after close)
-    exitConfig.loop = document.getElementById('w-exit-loop')?.checked ?? true;
+        },
+        loop: document.getElementById('w-exit-loop')?.checked ?? true,
+    };
     
     return {
         auto_trade: autoTrade,
@@ -1001,13 +922,12 @@ async function addWatch() {
         log(`已新增觀察: ${symbol}（已收藏 ⭐）`, 'success');
         // Apply default settings to the new watch
         if (res.id) {
-            const settings = applyDefaultSettings(res.id);
+            // trading_config is already set by buildTradingConfig() during creation
+            const settings = getSettings();
             // Check if watch should be paused by default
             if (settings.watchState === 'paused') {
-                // Update watch to set enabled=false
-                api(`/api/watch/${res.id}`, 'PUT', { ...res, enabled: false }).catch(() => {});
+                api(`/api/watch/${res.id}`, 'PUT', { enabled: false }).catch(() => {});
             }
-            localStorage.setItem('optSelections', JSON.stringify(state.optSelections));
         }
         // In standalone mode, push locally; otherwise let WebSocket watch_update handle it
         if (standaloneMode) {
@@ -1842,45 +1762,39 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         return `<button class="expiry-tab ${isActive ? 'active' : ''}" onclick="selectExpiry('${watch.id}','${exp}')">${info.label || exp}${isActive ? ' ✓' : ''}</button>`;
     }).join('');
 
-    // Initialize optSelections with defaults if not exists
-    if (!state.optSelections[watch.id]) {
-        applyDefaultSettings(watch.id);
-    }
-    const sel = state.optSelections[watch.id] || {};
-    // Use recorded defaults from creation time, not current settings
-    const optDefaults = sel._optDefaults || getSettings();
+    // Read config from watch.trading_config (backend source of truth)
+    const cfg = watch.trading_config || { auto_trade: false, targets: {}, exit: {} };
+    const targets = cfg.targets || {};
+    const exitCfg = cfg.exit || {};
     
-    const renderSide = (opts, label, color) => {
+    const renderSide = (opts, side, label, color) => {
         if (!opts.length) return '';
-        // Determine default check based on position (1-5) using recorded defaults
-        const defaultChecks = [optDefaults.checkOpt1, optDefaults.checkOpt2, optDefaults.checkOpt3, optDefaults.checkOpt4, optDefaults.checkOpt5];
         let rows = opts.map((o, i) => {
-            const optKey = `${o.conId || o.right + '-' + i}`;
-            const optSel = sel[optKey] || {};
-            // Use saved check state, or default based on position if first time
-            const defaultCheck = i < 5 ? defaultChecks[i] : false;
-            const checked = optSel.checked !== undefined ? (optSel.checked ? 'checked' : '') : (defaultCheck ? 'checked' : '');
-            const amt = optSel.amount || optDefaults.optAmount;
+            // Use position-based key: call_0, call_1, put_0, put_1, etc.
+            const targetKey = `${side}_${i}`;
+            const target = targets[targetKey] || {};
+            const checked = target.enabled ? 'checked' : '';
+            const amt = target.amount || 5000;
             const mult = o.multiplier || 100;
             return `
             <div class="opt-row-wrap">
                 <div class="opt-inline-row opt-row-main">
-                    <input type="checkbox" id="opt-${watch.id}-${optKey}" class="opt-check"
+                    <input type="checkbox" id="opt-${watch.id}-${targetKey}" class="opt-check"
                         data-conid="${o.conId}" data-ask="${o.ask}" data-bid="${o.bid}"
                         data-strike="${o.strike}" data-right="${o.right}" data-expiry="${o.expiry}"
-                        data-multiplier="${mult}" data-key="${optKey}" ${checked}
-                        onchange="saveOptSel('${watch.id}','${optKey}',this.checked)">
+                        data-multiplier="${mult}" data-key="${targetKey}" ${checked}
+                        onchange="updateTradingTarget('${watch.id}','${targetKey}','enabled',this.checked)">
                     <span class="opt-inline-strike">${o.strike}</span>
                     <span class="opt-inline-mult">×${mult}</span>
                     <span class="opt-inline-name">${o.expiryLabel || ''} ${o.right}</span>
                     <span class="opt-inline-ba">${o.bid?.toFixed(2) ?? '--'}/${o.ask?.toFixed(2) ?? '--'}</span>
                     <span class="opt-inline-last" style="color:${color}">$${o.last?.toFixed(2) || '--'}</span>
                     <span class="opt-inline-vol">${o.volume || '--'}</span>
-                    <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+                    <input type="number" value="${amt}" min="100" step="100" class="opt-inline-amt" placeholder="金額" onchange="updateTradingTarget('${watch.id}','${targetKey}','amount',parseFloat(this.value))">
                 </div>
                 <div class="opt-row-sub">
                     <span class="opt-sub-info">×${mult} · ${o.expiryLabel || o.expiry} ${o.right}</span>
-                    <input type="number" value="${amt}" min="100" step="100" class="opt-sub-amt" placeholder="金額" onchange="saveOptAmt('${watch.id}','${optKey}',this.value)">
+                    <input type="number" value="${amt}" min="100" step="100" class="opt-sub-amt" placeholder="金額" onchange="updateTradingTarget('${watch.id}','${targetKey}','amount',parseFloat(this.value))">
                 </div>
             </div>`;
         }).join('');
@@ -1896,82 +1810,84 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         </div>`;
     };
 
-    // Also show underlying as tradeable
-    const stkSel = sel['stk'] || {};
-    const stkChecked = stkSel.checked ? 'checked' : '';
-    // Get underlying contract info (conId, multiplier) from data
+    // Underlying (STK) configuration
+    const stkTarget = targets.stk || {};
+    const stkChecked = stkTarget.enabled ? 'checked' : '';
     const underlyingInfo = data.underlying || {};
     const stkConId = underlyingInfo.conId || '';
     const stkMultiplier = underlyingInfo.multiplier || 1;
-    // For FUT: input is qty (margin-based); for STK: input is amount (full payment)
     const isFutures = watch.sec_type === 'FUT';
-    const stkInputVal = stkSel.amount || (isFutures ? 1 : 5000);
+    const stkInputVal = isFutures ? (stkTarget.qty || 1) : (stkTarget.amount || 5000);
     const stkPlaceholder = isFutures ? '口數' : '金額';
     const stkMin = isFutures ? 1 : 100;
     const stkStep = isFutures ? 1 : 100;
+    const stkField = isFutures ? 'qty' : 'amount';
     const underlying = `
         <div class="opt-inline-row" style="border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px;">
             <input type="checkbox" id="opt-${watch.id}-stk" class="opt-check" 
                 data-ask="${price}" data-key="stk" data-conid="${stkConId}" data-multiplier="${stkMultiplier}"
                 data-sectype="${watch.sec_type}"
-                ${stkChecked} onchange="saveOptSel('${watch.id}','stk',this.checked)">
+                ${stkChecked} onchange="updateTradingTarget('${watch.id}','stk','enabled',this.checked)">
             <span class="opt-inline-strike" style="color:var(--blue);">標的</span>
             <span class="opt-inline-mult">×${stkMultiplier}</span>
             <span class="opt-inline-name">📈 ${watch.symbol}</span>
             <span class="opt-inline-ba">--</span>
             <span class="opt-inline-last" style="color:var(--blue)">$${price}</span>
             <span class="opt-inline-vol"></span>
-            <input type="number" value="${stkInputVal}" min="${stkMin}" step="${stkStep}" class="opt-inline-amt" placeholder="${stkPlaceholder}" onchange="saveOptAmt('${watch.id}','stk',this.value)">
+            <input type="number" value="${stkInputVal}" min="${stkMin}" step="${stkStep}" class="opt-inline-amt" placeholder="${stkPlaceholder}" onchange="updateTradingTarget('${watch.id}','stk','${stkField}',parseFloat(this.value))">
         </div>`;
     
-    // Exit strategy configuration (preserve state)
-    const ex = sel.exit || {};
+    // Exit strategy from trading_config.exit
+    const ex = exitCfg.limit || {};
+    const exTime = exitCfg.time || {};
+    const exMa = exitCfg.ma || {};
+    const exBb = exitCfg.bb || {};
     const exitConfig = `
         <div class="exit-config">
             <div class="exit-config-title">📤 平倉策略（可多選）</div>
             <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-profit" ${ex.profit ? 'checked' : ''} onchange="saveExitSel('${watch.id}','profit',this.checked)"> 1️⃣ 限價止盈</label>
-                <span>成交價 <select id="exit-${watch.id}-profit-dir" onchange="saveExitVal('${watch.id}','profitDir',this.value)">
-                    <option value="+" ${ex.profitDir === '+' || !ex.profitDir ? 'selected' : ''}>+</option>
-                    <option value="-" ${ex.profitDir === '-' ? 'selected' : ''}>-</option>
+                <label><input type="checkbox" id="exit-${watch.id}-profit" ${ex.enabled ? 'checked' : ''} onchange="updateExitConfig('${watch.id}','limit','enabled',this.checked)"> 1️⃣ 限價止盈</label>
+                <span>成交價 <select id="exit-${watch.id}-profit-dir" onchange="updateExitConfig('${watch.id}','limit','dir',this.value)">
+                    <option value="+" ${ex.dir === '+' || !ex.dir ? 'selected' : ''}>+</option>
+                    <option value="-" ${ex.dir === '-' ? 'selected' : ''}>-</option>
                 </select>
-                <input type="number" id="exit-${watch.id}-profit-pts" value="${ex.profitPts || 0.5}" step="0.1" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','profitPts',this.value)">
-                <select id="exit-${watch.id}-profit-unit" onchange="saveExitVal('${watch.id}','profitUnit',this.value)">
-                    <option value="pts" ${ex.profitUnit === 'pts' || !ex.profitUnit ? 'selected' : ''}>點</option>
-                    <option value="pct" ${ex.profitUnit === 'pct' ? 'selected' : ''}>%</option>
+                <input type="number" id="exit-${watch.id}-profit-pts" value="${ex.pts || 50}" step="1" min="0" class="exit-input" onchange="updateExitConfig('${watch.id}','limit','pts',parseFloat(this.value))">
+                <select id="exit-${watch.id}-profit-unit" onchange="updateExitConfig('${watch.id}','limit','unit',this.value)">
+                    <option value="pts" ${ex.unit === 'pts' ? 'selected' : ''}>點</option>
+                    <option value="pct" ${ex.unit === 'pct' || !ex.unit ? 'selected' : ''}>%</option>
                 </select></span>
             </div>
             <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-time" ${ex.time ? 'checked' : ''} onchange="saveExitSel('${watch.id}','time',this.checked)"> 2️⃣ 時間平倉</label>
-                <input type="time" id="exit-${watch.id}-time-val" value="${ex.timeVal || '15:55'}" class="exit-input" onchange="saveExitVal('${watch.id}','timeVal',this.value)">
+                <label><input type="checkbox" id="exit-${watch.id}-time" ${exTime.enabled ? 'checked' : ''} onchange="updateExitConfig('${watch.id}','time','enabled',this.checked)"> 2️⃣ 時間平倉</label>
+                <input type="time" id="exit-${watch.id}-time-val" value="${exTime.value || '15:55'}" class="exit-input" onchange="updateExitConfig('${watch.id}','time','value',this.value)">
             </div>
             <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-ma" ${ex.ma ? 'checked' : ''} onchange="saveExitSel('${watch.id}','ma',this.checked)"> 3️⃣ 均線平倉</label>
-                <span>標的 <select id="exit-${watch.id}-ma-cond" onchange="saveExitVal('${watch.id}','maCond',this.value)">
-                    <option value="above" ${ex.maCond === 'above' || !ex.maCond ? 'selected' : ''}>高於</option>
-                    <option value="below" ${ex.maCond === 'below' ? 'selected' : ''}>低於</option>
-                </select> MA <select id="exit-${watch.id}-ma-dir" onchange="saveExitVal('${watch.id}','maDir',this.value)">
-                    <option value="+" ${ex.maDir === '+' || !ex.maDir ? 'selected' : ''}>+</option>
-                    <option value="-" ${ex.maDir === '-' ? 'selected' : ''}>-</option>
+                <label><input type="checkbox" id="exit-${watch.id}-ma" ${exMa.enabled ? 'checked' : ''} onchange="updateExitConfig('${watch.id}','ma','enabled',this.checked)"> 3️⃣ 均線平倉</label>
+                <span>標的 <select id="exit-${watch.id}-ma-cond" onchange="updateExitConfig('${watch.id}','ma','cond',this.value)">
+                    <option value="above" ${exMa.cond === 'above' || !exMa.cond ? 'selected' : ''}>高於</option>
+                    <option value="below" ${exMa.cond === 'below' ? 'selected' : ''}>低於</option>
+                </select> MA <select id="exit-${watch.id}-ma-dir" onchange="updateExitConfig('${watch.id}','ma','dir',this.value)">
+                    <option value="+" ${exMa.dir === '+' || !exMa.dir ? 'selected' : ''}>+</option>
+                    <option value="-" ${exMa.dir === '-' ? 'selected' : ''}>-</option>
                 </select>
-                <input type="number" id="exit-${watch.id}-ma-pts" value="${ex.maPts || 5}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','maPts',this.value)"> 點</span>
+                <input type="number" id="exit-${watch.id}-ma-pts" value="${exMa.pts || 5}" step="0.5" min="0" class="exit-input" onchange="updateExitConfig('${watch.id}','ma','pts',parseFloat(this.value))"> 點</span>
             </div>
             <div class="exit-option">
-                <label><input type="checkbox" id="exit-${watch.id}-bb" ${ex.bb ? 'checked' : ''} onchange="saveExitSel('${watch.id}','bb',this.checked)"> 4️⃣ 布林帶平倉</label>
-                <span>價格 <select id="exit-${watch.id}-bb-cond" onchange="saveExitVal('${watch.id}','bbCond',this.value)">
-                    <option value="above" ${ex.bbCond === 'above' || !ex.bbCond ? 'selected' : ''}>高於</option>
-                    <option value="below" ${ex.bbCond === 'below' ? 'selected' : ''}>低於</option>
-                </select> <select id="exit-${watch.id}-bb-target" onchange="saveExitVal('${watch.id}','bbTarget',this.value)">
-                    <option value="middle" ${ex.bbTarget === 'middle' || !ex.bbTarget ? 'selected' : ''}>中軌</option>
-                    <option value="opposite" ${ex.bbTarget === 'opposite' ? 'selected' : ''}>反向軌</option>
-                </select> <select id="exit-${watch.id}-bb-dir" onchange="saveExitVal('${watch.id}','bbDir',this.value)">
-                    <option value="+" ${ex.bbDir === '+' || !ex.bbDir ? 'selected' : ''}>+</option>
-                    <option value="-" ${ex.bbDir === '-' ? 'selected' : ''}>-</option>
+                <label><input type="checkbox" id="exit-${watch.id}-bb" ${exBb.enabled ? 'checked' : ''} onchange="updateExitConfig('${watch.id}','bb','enabled',this.checked)"> 4️⃣ 布林帶平倉</label>
+                <span>價格 <select id="exit-${watch.id}-bb-cond" onchange="updateExitConfig('${watch.id}','bb','cond',this.value)">
+                    <option value="above" ${exBb.cond === 'above' || !exBb.cond ? 'selected' : ''}>高於</option>
+                    <option value="below" ${exBb.cond === 'below' ? 'selected' : ''}>低於</option>
+                </select> <select id="exit-${watch.id}-bb-target" onchange="updateExitConfig('${watch.id}','bb','target',this.value)">
+                    <option value="middle" ${exBb.target === 'middle' || !exBb.target ? 'selected' : ''}>中軌</option>
+                    <option value="opposite" ${exBb.target === 'opposite' ? 'selected' : ''}>反向軌</option>
+                </select> <select id="exit-${watch.id}-bb-dir" onchange="updateExitConfig('${watch.id}','bb','dir',this.value)">
+                    <option value="+" ${exBb.dir === '+' || !exBb.dir ? 'selected' : ''}>+</option>
+                    <option value="-" ${exBb.dir === '-' ? 'selected' : ''}>-</option>
                 </select>
-                <input type="number" id="exit-${watch.id}-bb-pts" value="${ex.bbPts || 0}" step="0.5" min="0" class="exit-input" onchange="saveExitVal('${watch.id}','bbPts',this.value)"> 點</span>
+                <input type="number" id="exit-${watch.id}-bb-pts" value="${exBb.pts || 0}" step="0.5" min="0" class="exit-input" onchange="updateExitConfig('${watch.id}','bb','pts',parseFloat(this.value))"> 點</span>
             </div>
             <div class="exit-option" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">
-                <label><input type="checkbox" id="exit-${watch.id}-loop" ${ex.loop !== false ? 'checked' : ''} onchange="saveExitSel('${watch.id}','loop',this.checked)"> 🔄 平倉後繼續監控（閉環）</label>
+                <label><input type="checkbox" id="exit-${watch.id}-loop" ${exitCfg.loop !== false ? 'checked' : ''} onchange="updateExitConfig('${watch.id}',null,'loop',this.checked)"> 🔄 平倉後繼續監控（閉環）</label>
             </div>
             <div class="exit-actions">
                 <button class="btn btn-action" onclick="refreshSheetContent()">🔄 更新報價</button>
@@ -1995,8 +1911,8 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         </div>
         ${lockedInfo}
         ${underlying}
-        ${showCall ? renderSide(callOpts, 'Call 價外5檔（做多買權）', 'var(--green)') : ''}
-        ${showPut ? renderSide(putOpts, 'Put 價外5檔（做空買權）', 'var(--red)') : ''}
+        ${showCall ? renderSide(callOpts, 'call', 'Call 價外5檔（做多買權）', 'var(--green)') : ''}
+        ${showPut ? renderSide(putOpts, 'put', 'Put 價外5檔（做空買權）', 'var(--red)') : ''}
         ${exitConfig}
     </div>`;
 }
@@ -2018,33 +1934,65 @@ async function selectExpiry(watchId, expiry) {
 }
 
 // Save/restore option selections
-function saveOptSel(watchId, key, checked) {
-    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
-    if (!state.optSelections[watchId][key]) state.optSelections[watchId][key] = {};
-    state.optSelections[watchId][key].checked = checked;
+// Update trading target in watch.trading_config and sync to backend
+async function updateTradingTarget(watchId, targetKey, field, value) {
+    const watch = state.watchList.find(w => w.id === watchId);
+    if (!watch) return;
+    
+    // Initialize if needed
+    if (!watch.trading_config) watch.trading_config = { auto_trade: false, targets: {}, exit: {} };
+    if (!watch.trading_config.targets) watch.trading_config.targets = {};
+    if (!watch.trading_config.targets[targetKey]) watch.trading_config.targets[targetKey] = {};
+    
+    // Update the field
+    watch.trading_config.targets[targetKey][field] = value;
+    
+    // Sync to backend (debounced)
+    syncTradingConfigDebounced(watchId, watch.trading_config);
 }
-function saveOptAmt(watchId, key, amount) {
-    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
-    if (!state.optSelections[watchId][key]) state.optSelections[watchId][key] = {};
-    state.optSelections[watchId][key].amount = parseFloat(amount);
+
+// Update exit config in watch.trading_config and sync to backend
+async function updateExitConfig(watchId, exitType, field, value) {
+    const watch = state.watchList.find(w => w.id === watchId);
+    if (!watch) return;
+    
+    // Initialize if needed
+    if (!watch.trading_config) watch.trading_config = { auto_trade: false, targets: {}, exit: {} };
+    if (!watch.trading_config.exit) watch.trading_config.exit = {};
+    
+    if (exitType) {
+        // Update specific exit type (limit, time, ma, bb)
+        if (!watch.trading_config.exit[exitType]) watch.trading_config.exit[exitType] = {};
+        watch.trading_config.exit[exitType][field] = value;
+    } else {
+        // Update root field (loop)
+        watch.trading_config.exit[field] = value;
+    }
+    
+    // Sync to backend (debounced)
+    syncTradingConfigDebounced(watchId, watch.trading_config);
 }
-function saveExitSel(watchId, key, checked) {
-    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
-    if (!state.optSelections[watchId].exit) state.optSelections[watchId].exit = {};
-    state.optSelections[watchId].exit[key] = checked;
-}
-function saveExitVal(watchId, key, value) {
-    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
-    if (!state.optSelections[watchId].exit) state.optSelections[watchId].exit = {};
-    state.optSelections[watchId].exit[key] = value;
+
+// Debounced sync to avoid too many API calls
+const _syncTimers = {};
+function syncTradingConfigDebounced(watchId, config) {
+    if (_syncTimers[watchId]) clearTimeout(_syncTimers[watchId]);
+    _syncTimers[watchId] = setTimeout(async () => {
+        try {
+            await api(`/api/watch/${watchId}`, 'PUT', { trading_config: config });
+            log('配置已保存', 'success');
+        } catch (e) {
+            log('配置保存失敗', 'error');
+        }
+    }, 500);  // 500ms debounce
 }
 
 async function placeOrder(watchId) {
     const w = state.watchList.find(x => x.id === watchId);
     if (!w) return;
 
-    const sel = state.optSelections[watchId] || {};
-    const ex = sel.exit || {};
+    const cfg = w.trading_config || { targets: {}, exit: {} };
+    const exitCfg = cfg.exit || {};
 
     // Collect checked options from DOM (has latest data attributes)
     const checkboxes = document.querySelectorAll(`input.opt-check[id^="opt-${watchId}-"]:checked`);
@@ -2095,32 +2043,36 @@ async function placeOrder(watchId) {
         return;
     }
 
-    // Build exit strategies
+    // Build exit strategies from watch.trading_config.exit
+    const exLimit = exitCfg.limit || {};
+    const exTime = exitCfg.time || {};
+    const exMa = exitCfg.ma || {};
+    const exBb = exitCfg.bb || {};
     const exitConfig = {
         limit: {
-            enabled: !!ex.profit,
-            dir: ex.profitDir || '+',
-            pts: parseFloat(ex.profitPts) || 0.5,
-            unit: ex.profitUnit || 'pts',  // 'pts' or 'pct'
+            enabled: !!exLimit.enabled,
+            dir: exLimit.dir || '+',
+            pts: parseFloat(exLimit.pts) || 50,
+            unit: exLimit.unit || 'pct',
         },
         time: {
-            enabled: !!ex.time,
-            value: ex.timeVal || '15:55',
+            enabled: !!exTime.enabled,
+            value: exTime.value || '15:55',
         },
         ma: {
-            enabled: !!ex.ma,
-            cond: ex.maCond || 'above',
-            dir: ex.maDir || '+',
-            pts: parseFloat(ex.maPts) || 5,
+            enabled: !!exMa.enabled,
+            cond: exMa.cond || 'above',
+            dir: exMa.dir || '+',
+            pts: parseFloat(exMa.pts) || 5,
         },
         bb: {
-            enabled: !!ex.bb,
-            cond: ex.bbCond || 'above',       // 'above' or 'below'
-            target: ex.bbTarget || 'middle',  // 'middle' or 'opposite'
-            dir: ex.bbDir || '+',             // '+' or '-'
-            pts: parseFloat(ex.bbPts) || 0,
+            enabled: !!exBb.enabled,
+            cond: exBb.cond || 'above',
+            target: exBb.target || 'middle',
+            dir: exBb.dir || '+',
+            pts: parseFloat(exBb.pts) || 0,
         },
-        loop: ex.loop !== false,  // 平倉後繼續監控（預設開啟）
+        loop: exitCfg.loop !== false,
     };
 
     // Show confirmation
