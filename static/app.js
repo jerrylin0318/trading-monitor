@@ -1293,9 +1293,9 @@ function renderWatchList() {
                     <span class="ma-badge ${dirClass}">${dirLabel}</span>
                     <span class="trigger-zone ${zoneActive ? 'active' : zoneReady ? 'ready' : ''}" title="${zoneReady ? (zoneActive ? '條件滿足！' : '方向正確，等待價格進入') : '方向不符，暫不觸發'}">${zoneStatus} 觸發區: ${zone}</span>
                 </div>
-                <div style="display:flex;gap:4px;">
-                    <button class="btn btn-sm" onclick="toggleChart('${w.id}')" title="K線圖">📈</button>
-                    <button class="btn btn-sm" onclick="toggleExpand('${w.id}')">交易標的</button>
+                <div style="display:flex;gap:6px;">
+                    <button class="btn btn-sm btn-outline" onclick="toggleChart('${w.id}')">📈 K線圖</button>
+                    <button class="btn btn-sm btn-outline" onclick="toggleExpand('${w.id}')">⚡ 交易標的</button>
                 </div>
             </div>
         </div>`;
