@@ -942,6 +942,10 @@ async function addWatch() {
 }
 
 async function removeWatch(id) {
+    const watch = state.watchList.find(w => w.id === id);
+    const symbol = watch ? watch.symbol : id;
+    if (!confirm(`確定要移除 ${symbol} 嗎？`)) return;
+    
     await api(`/api/watch/${id}`, 'DELETE');
     state.watchList = state.watchList.filter(w => w.id !== id);
     renderWatchList();
