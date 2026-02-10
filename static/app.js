@@ -359,7 +359,10 @@ async function renderChartInSheet(watchId) {
         const now = new Date();
         let currentPeriodTime;
         
-        if (timeframe === 'W') {
+        if (timeframe === 'H') {
+            // Hourly: start of current hour
+            currentPeriodTime = Math.floor(Date.now() / 1000 / 3600) * 3600;
+        } else if (timeframe === 'W') {
             // Weekly: start of current week (Monday 00:00 UTC)
             const day = now.getUTCDay();
             const diff = day === 0 ? 6 : day - 1; // Monday = 0
@@ -1290,7 +1293,7 @@ function renderWatchList() {
         const strategyType = w.strategy_type || data.strategy_type || 'MA';
         const strategyLabel = strategyType === 'BB' ? '布林帶' : 'MA';
         const timeframe = w.timeframe || 'D';
-        const timeframeLabel = timeframe === 'W' ? '週' : timeframe === 'M' ? '月' : '日';
+        const timeframeLabel = timeframe === 'H' ? '時' : timeframe === 'W' ? '週' : timeframe === 'M' ? '月' : '日';
         
         // 觸發區 + 有效性判斷
         let zone = '--';
@@ -1534,7 +1537,9 @@ function updateLiveCandle(watchId, price) {
     // Calculate current period start time
     const now = new Date();
     let currentPeriodTime;
-    if (timeframe === 'W') {
+    if (timeframe === 'H') {
+        currentPeriodTime = Math.floor(Date.now() / 1000 / 3600) * 3600;
+    } else if (timeframe === 'W') {
         const day = now.getUTCDay();
         const diff = day === 0 ? 6 : day - 1;
         const monday = new Date(now);
@@ -1592,7 +1597,7 @@ function updateLiveCandle(watchId, price) {
 
 async function toggleChart(watchId) {
     const watch = state.watchList.find(w => w.id === watchId);
-    const tf = watch?.timeframe === 'W' ? '週' : watch?.timeframe === 'M' ? '月' : '日';
+    const tf = watch?.timeframe === 'H' ? '時' : watch?.timeframe === 'W' ? '週' : watch?.timeframe === 'M' ? '月' : '日';
     openBottomSheet(watchId, 'chart', `📈 ${watch?.symbol || ''} ${tf}K線圖`);
 }
 

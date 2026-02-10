@@ -86,9 +86,11 @@ class LoginRequest(BaseModel):
 # --- Timeframe settings ---
 def get_timeframe_params(timeframe: str) -> tuple:
     """Return (duration, bar_size) based on timeframe.
-    D = 日線, W = 週線, M = 月線
+    H = 小時線, D = 日線, W = 週線, M = 月線
     """
-    if timeframe == "W":
+    if timeframe == "H":
+        return ("1 M", "1 hour")  # 1 month of hourly data
+    elif timeframe == "W":
         return ("2 Y", "1 week")
     elif timeframe == "M":
         return ("5 Y", "1 month")

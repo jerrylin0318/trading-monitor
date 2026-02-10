@@ -177,7 +177,56 @@
           "loop": false
         }
       }
+    },
+    {
+      "id": "e2a7468b",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "BB",
+      "bb_std_dev": 2.0,
+      "timeframe": "W",
+      "trading_config": {
+        "auto_trade": false,
+        "targets": [
+          {
+            "type": "stk",
+            "offset": 0,
+            "amount": 0.0,
+            "qty": 2
+          },
+          {
+            "type": "call",
+            "offset": 1,
+            "amount": 300.0,
+            "qty": 0
+          },
+          {
+            "type": "put",
+            "offset": 1,
+            "amount": 300.0,
+            "qty": 0
+          }
+        ],
+        "exit": {
+          "limit": {
+            "enabled": true,
+            "dir": "+",
+            "pts": 20,
+            "unit": "pts"
+          },
+          "loop": false
+        }
+      }
     }
   ],
-  "saved_at": "2026-02-09T23:04:34.009581"
+  "saved_at": "2026-02-10T00:24:35.831467"
 }
