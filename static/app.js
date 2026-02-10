@@ -341,13 +341,44 @@ async function renderChartInSheet(watchId) {
     });
     candleSeries.setData(chartData.candles);
     
+    // Store series reference for live updates
+    chartSeries[watchId] = { candle: candleSeries, ma: null };
+    
+    // Add today's candle from current price (real-time)
+    const data = state.latestData[watchId];
+    if (data?.current_price) {
+        const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+        const lastCandle = chartData.candles[chartData.candles.length - 1];
+        if (lastCandle && lastCandle.time < todayTime) {
+            todayCandle[watchId] = {
+                time: todayTime,
+                open: data.current_price,
+                high: data.current_price,
+                low: data.current_price,
+                close: data.current_price,
+            };
+            candleSeries.update(todayCandle[watchId]);
+        }
+    }
+    
     // MA line (middle line for BB)
+    let maSeries = null;
     if (chartData.ma?.length) {
-        const maSeries = chart.addLineSeries({
+        maSeries = chart.addLineSeries({
             color: '#f0883e', lineWidth: 2,
             title: chartData.strategy_type === 'BB' ? `中軌MA${chartData.ma_period}` : `MA${chartData.ma_period}`
         });
         maSeries.setData(chartData.ma);
+        chartSeries[watchId].ma = maSeries;
+        
+        // Add today's MA from real-time data
+        if (data?.ma_value) {
+            const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+            const lastMATime = chartData.ma[chartData.ma.length - 1]?.time || 0;
+            if (lastMATime < todayTime) {
+                maSeries.update({ time: todayTime, value: data.ma_value });
+            }
+        }
     }
     
     // BB upper/lower bands
@@ -365,6 +396,16 @@ async function renderChartInSheet(watchId) {
             title: `下軌 (${chartData.bb_std_dev}σ)`
         });
         bbLowerSeries.setData(chartData.bb_lower);
+        
+        // Add today's BB from real-time data
+        if (data?.bb_upper && data?.bb_lower) {
+            const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+            const lastBBTime = chartData.bb_upper[chartData.bb_upper.length - 1]?.time || 0;
+            if (lastBBTime < todayTime) {
+                bbUpperSeries.update({ time: todayTime, value: data.bb_upper });
+                bbLowerSeries.update({ time: todayTime, value: data.bb_lower });
+            }
+        }
     }
     
     // Confirm MA line (if enabled)
@@ -375,6 +416,15 @@ async function renderChartInSheet(watchId) {
             title: `確認MA${chartData.confirm_ma_period}`
         });
         confirmMaSeries.setData(chartData.confirm_ma);
+        
+        // Add today's confirm MA
+        if (data?.confirm_ma_value) {
+            const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+            const lastConfirmTime = chartData.confirm_ma[chartData.confirm_ma.length - 1]?.time || 0;
+            if (lastConfirmTime < todayTime) {
+                confirmMaSeries.update({ time: todayTime, value: data.confirm_ma_value });
+            }
+        }
     }
     
     chart.timeScale().fitContent();
