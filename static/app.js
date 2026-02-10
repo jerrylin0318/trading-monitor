@@ -2503,19 +2503,22 @@ function updateStrategyFields() {
     const nPointsGroup = document.getElementById('w-n-points-group');
     const bbStdGroup = document.getElementById('w-bb-std-group');
     const confirmMaGroup = document.getElementById('w-confirm-ma-group');
+    const maLabel = document.querySelector('label[for="w-ma-period"]') || document.querySelector('#w-ma-period')?.previousElementSibling;
     
     if (strategyType === 'BB') {
-        // Bollinger Bands: show std dev, hide confirm MA (BB doesn't need MA direction)
+        // Bollinger Bands: show std dev, show confirm MA (now supported)
         bbStdGroup.style.display = 'block';
-        confirmMaGroup.style.display = 'none';
+        confirmMaGroup.style.display = 'block';
         const label = document.querySelector('#w-n-points-group label');
         if (label) label.textContent = '緩衝點數';
+        if (maLabel) maLabel.textContent = '中軸週期';
     } else {
         // MA Strategy: hide std dev, show confirm MA
         bbStdGroup.style.display = 'none';
         confirmMaGroup.style.display = 'block';
         const label = document.querySelector('#w-n-points-group label');
         if (label) label.textContent = 'N 點';
+        if (maLabel) maLabel.textContent = 'MA 週期';
     }
 }
 
