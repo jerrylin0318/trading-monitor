@@ -569,12 +569,17 @@ async def monitor_loop():
                     continue
 
             # Read all streaming prices (fast — no API calls, just reads cached ticker values)
-            prices = await ib.read_prices()
+            price_data = await ib.read_prices()
 
-            for watch_id, price in prices.items():
+            for watch_id, pdata in price_data.items():
                 watch = engine.watch_list.get(watch_id)
                 if not watch or not watch.enabled:
                     continue
+
+                price = pdata["price"] if isinstance(pdata, dict) else pdata
+                day_open = pdata.get("open", price) if isinstance(pdata, dict) else price
+                day_high = pdata.get("high", price) if isinstance(pdata, dict) else price
+                day_low = pdata.get("low", price) if isinstance(pdata, dict) else price
 
                 # Skip broadcast if price unchanged (avoid WebSocket spam)
                 old_price = last_broadcast_prices.get(watch_id, 0)
@@ -586,6 +591,11 @@ async def monitor_loop():
                 # Broadcast data_update when price changes
                 if price_changed or signal:
                     data = engine.latest_data.get(watch_id, {})
+                    
+                    # Include day OHLC for live candle
+                    data["day_open"] = day_open
+                    data["day_high"] = day_high
+                    data["day_low"] = day_low
 
                     # Include cached options
                     if watch_id in _options_cache:

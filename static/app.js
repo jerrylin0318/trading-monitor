@@ -349,17 +349,21 @@ async function renderChartInSheet(watchId) {
     // Store series reference for live updates
     chartSeries[watchId] = { candle: candleSeries, ma: null };
     
-    // Add today's candle from current price (real-time)
+    // Add today's candle from real-time OHLC data
     const data = state.latestData[watchId];
     if (data?.current_price) {
         const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
         const lastCandle = chartData.candles[chartData.candles.length - 1];
         if (lastCandle && lastCandle.time < todayTime) {
+            // Use IB's day OHLC if available
+            const dayOpen = data.day_open || data.current_price;
+            const dayHigh = data.day_high || data.current_price;
+            const dayLow = data.day_low || data.current_price;
             todayCandle[watchId] = {
                 time: todayTime,
-                open: data.current_price,
-                high: data.current_price,
-                low: data.current_price,
+                open: dayOpen,
+                high: dayHigh,
+                low: dayLow,
                 close: data.current_price,
             };
             candleSeries.update(todayCandle[watchId]);
@@ -1489,9 +1493,9 @@ function updateLiveCandle(watchId, price) {
     if (!price || !chartSeries[watchId]?.candle) return;
     
     const todayTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
+    const data = state.latestData[watchId];
     
     // Update live MA point (middle line for BB)
-    const data = state.latestData[watchId];
     if (data?.ma_value && chartSeries[watchId]?.ma) {
         chartSeries[watchId].ma.update({ time: todayTime, value: data.ma_value });
     }
@@ -1509,20 +1513,25 @@ function updateLiveCandle(watchId, price) {
         chartSeries[watchId].confirmMa.update({ time: todayTime, value: data.confirm_ma_value });
     }
     
+    // Use day OHLC from IB if available, otherwise track locally
+    const dayOpen = data?.day_open || price;
+    const dayHigh = data?.day_high || price;
+    const dayLow = data?.day_low || price;
+    
     if (!todayCandle[watchId] || todayCandle[watchId].time < todayTime) {
-        // New day - create new candle
+        // New day - create new candle with IB's OHLC
         todayCandle[watchId] = {
             time: todayTime,
-            open: price,
-            high: price,
-            low: price,
+            open: dayOpen,
+            high: dayHigh,
+            low: dayLow,
             close: price,
         };
     } else {
-        // Update existing candle
+        // Update existing candle - use IB's high/low, update close
         todayCandle[watchId].close = price;
-        todayCandle[watchId].high = Math.max(todayCandle[watchId].high, price);
-        todayCandle[watchId].low = Math.min(todayCandle[watchId].low, price);
+        todayCandle[watchId].high = Math.max(todayCandle[watchId].high, dayHigh);
+        todayCandle[watchId].low = Math.min(todayCandle[watchId].low, dayLow);
     }
     
     chartSeries[watchId].candle.update(todayCandle[watchId]);

@@ -645,11 +645,13 @@ class IBManager:
                 pass
         logger.info("Unsubscribed all price streams")
 
-    def _sync_read_prices(self) -> Dict[str, float]:
-        """Read current prices from all active subscriptions.
+    def _sync_read_prices(self) -> Dict[str, Dict]:
+        """Read current prices and OHLC from all active subscriptions.
 
         Processes pending IB events, then reads cached ticker values.
         Very fast — no new API requests.
+        
+        Returns: {watch_id: {price, open, high, low, close}}
         """
         ib = self._get_ib()
         ib.sleep(0.1)  # Process pending messages from IB
@@ -663,7 +665,16 @@ class IBManager:
                 if math.isnan(price):
                     continue
             if price > 0:
-                prices[watch_id] = float(price)
+                # Get OHLC data (day's open, high, low)
+                day_open = ticker.open if not math.isnan(ticker.open) else price
+                day_high = ticker.high if not math.isnan(ticker.high) else price
+                day_low = ticker.low if not math.isnan(ticker.low) else price
+                prices[watch_id] = {
+                    "price": float(price),
+                    "open": float(day_open),
+                    "high": float(day_high),
+                    "low": float(day_low),
+                }
         return prices
 
     async def subscribe_price(self, watch_id: str, symbol: str, sec_type: str,
