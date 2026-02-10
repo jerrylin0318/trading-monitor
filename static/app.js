@@ -1263,6 +1263,7 @@ function renderWatchList() {
                     <span class="strategy-badge ${stratClass}">${stratLabel}</span>
                     ${w.symbol}${w.contract_month ? ` <span style="font-size:11px;color:var(--yellow);font-weight:500;">${formatContractMonth(w.contract_month)}</span>` : ''} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">${w.sec_type}</span>
                     <span class="phase-badge ${phaseClass}">${phaseStatus}</span>
+                    <span class="phase-badge" style="background:${w.trading_config?.auto_trade ? 'var(--green)' : 'var(--text-muted)'}">${w.trading_config?.auto_trade ? '自動交易' : '手動交易'}</span>
                 </div>
                 <div class="watch-actions">
                     <button class="btn btn-sm btn-icon" onclick="toggleWatch('${w.id}')" title="${w.enabled ? '停用' : '啟用'}">
@@ -1281,7 +1282,6 @@ function renderWatchList() {
                     <span class="info-tag">MA${w.ma_period}</span>
                     <span class="info-tag">${strategyType === 'BB' ? `σ${w.bb_std_dev || 2}` : `N${w.n_points}`}</span>
                     ${confirmEnabled && strategyType === 'MA' ? `<span class="info-tag" style="background:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmStatus}</span>` : ''}
-                    <span class="info-tag" style="background:${w.trading_config?.auto_trade ? 'var(--green)' : 'var(--text-muted)'}">${w.trading_config?.auto_trade ? '🤖 自動' : '🚫 手動'}</span>
                 </div>
                 <div class="watch-price-row">
                     <span class="price-item">💰 ${price}</span>
