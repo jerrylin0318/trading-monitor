@@ -44,6 +44,208 @@ function restoreTab() {
     if (saved) switchTab(saved);
 }
 
+// ─── Settings ───
+const DEFAULT_SETTINGS = {
+    checkStk: false,
+    checkOpt1: true,   // Default: trade OTM1
+    checkOpt2: false,
+    checkOpt3: false,
+    checkOpt4: false,
+    checkOpt5: false,
+    optAmount: 5000,   // Default: $5000 per option
+    futQty: 1,
+    exitProfit: true,  // Default: enable limit take-profit
+    exitProfitDir: '+',
+    exitProfitPts: 50, // 50% for percentage mode
+    exitProfitUnit: 'pct',  // Default: percentage
+    exitTime: false,
+    exitTimeVal: '15:55',
+    exitMa: false,
+    exitMaCond: 'above',
+    exitMaDir: '+',
+    exitMaPts: 5,
+    exitBb: false,
+    exitBbCond: 'above',
+    exitBbTarget: 'middle',
+    exitBbDir: '+',
+    exitBbPts: 0,
+    exitLoop: true,
+    watchState: 'enabled'
+};
+
+function getSettings() {
+    const saved = localStorage.getItem('tradingSettings');
+    return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
+}
+
+function openSettings() {
+    const s = getSettings();
+    document.getElementById('cfg-check-stk').checked = s.checkStk;
+    document.getElementById('cfg-check-opt1').checked = s.checkOpt1;
+    document.getElementById('cfg-check-opt2').checked = s.checkOpt2;
+    document.getElementById('cfg-check-opt3').checked = s.checkOpt3;
+    document.getElementById('cfg-check-opt4').checked = s.checkOpt4;
+    document.getElementById('cfg-check-opt5').checked = s.checkOpt5;
+    document.getElementById('cfg-opt-amount').value = s.optAmount;
+    document.getElementById('cfg-fut-qty').value = s.futQty;
+    document.getElementById('cfg-exit-profit').checked = s.exitProfit;
+    document.getElementById('cfg-exit-profit-dir').value = s.exitProfitDir;
+    document.getElementById('cfg-exit-profit-pts').value = s.exitProfitPts;
+    document.getElementById('cfg-exit-profit-unit').value = s.exitProfitUnit;
+    document.getElementById('cfg-exit-time').checked = s.exitTime;
+    document.getElementById('cfg-exit-time-val').value = s.exitTimeVal;
+    document.getElementById('cfg-exit-ma').checked = s.exitMa;
+    document.getElementById('cfg-exit-ma-cond').value = s.exitMaCond;
+    document.getElementById('cfg-exit-ma-dir').value = s.exitMaDir;
+    document.getElementById('cfg-exit-ma-pts').value = s.exitMaPts;
+    document.getElementById('cfg-exit-bb').checked = s.exitBb;
+    document.getElementById('cfg-exit-bb-cond').value = s.exitBbCond;
+    document.getElementById('cfg-exit-bb-target').value = s.exitBbTarget;
+    document.getElementById('cfg-exit-bb-dir').value = s.exitBbDir;
+    document.getElementById('cfg-exit-bb-pts').value = s.exitBbPts;
+    document.getElementById('cfg-exit-loop').checked = s.exitLoop;
+    document.querySelector(`input[name="cfg-watch-state"][value="${s.watchState}"]`).checked = true;
+    document.getElementById('settings-modal').classList.remove('hidden');
+}
+
+function closeSettings() {
+    document.getElementById('settings-modal').classList.add('hidden');
+}
+
+function collectSettingsFromUI() {
+    return {
+        checkStk: document.getElementById('cfg-check-stk').checked,
+        checkOpt1: document.getElementById('cfg-check-opt1').checked,
+        checkOpt2: document.getElementById('cfg-check-opt2').checked,
+        checkOpt3: document.getElementById('cfg-check-opt3').checked,
+        checkOpt4: document.getElementById('cfg-check-opt4').checked,
+        checkOpt5: document.getElementById('cfg-check-opt5').checked,
+        optAmount: parseFloat(document.getElementById('cfg-opt-amount').value) || 1000,
+        futQty: parseInt(document.getElementById('cfg-fut-qty').value) || 1,
+        exitProfit: document.getElementById('cfg-exit-profit').checked,
+        exitProfitDir: document.getElementById('cfg-exit-profit-dir').value,
+        exitProfitPts: parseFloat(document.getElementById('cfg-exit-profit-pts').value) || 0.5,
+        exitProfitUnit: document.getElementById('cfg-exit-profit-unit').value,
+        exitTime: document.getElementById('cfg-exit-time').checked,
+        exitTimeVal: document.getElementById('cfg-exit-time-val').value || '15:55',
+        exitMa: document.getElementById('cfg-exit-ma').checked,
+        exitMaCond: document.getElementById('cfg-exit-ma-cond').value,
+        exitMaDir: document.getElementById('cfg-exit-ma-dir').value,
+        exitMaPts: parseFloat(document.getElementById('cfg-exit-ma-pts').value) || 5,
+        exitBb: document.getElementById('cfg-exit-bb').checked,
+        exitBbCond: document.getElementById('cfg-exit-bb-cond').value,
+        exitBbTarget: document.getElementById('cfg-exit-bb-target').value,
+        exitBbDir: document.getElementById('cfg-exit-bb-dir').value,
+        exitBbPts: parseFloat(document.getElementById('cfg-exit-bb-pts').value) || 0,
+        exitLoop: document.getElementById('cfg-exit-loop').checked,
+        watchState: document.querySelector('input[name="cfg-watch-state"]:checked').value
+    };
+}
+
+function saveSettings() {
+    const settings = collectSettingsFromUI();
+    localStorage.setItem('tradingSettings', JSON.stringify(settings));
+    closeSettings();
+    log('預設配置已儲存', 'success');
+}
+
+function applySettingsToAll() {
+    const settings = collectSettingsFromUI();
+    
+    // Also save as default
+    localStorage.setItem('tradingSettings', JSON.stringify(settings));
+    
+    // Apply to all existing watches' optSelections
+    for (const w of state.watchList) {
+        // Reset optSelections for this watch (clear old option checks)
+        state.optSelections[w.id] = {
+            // Keep stk settings
+            stk: { checked: settings.checkStk, amount: settings.futQty },
+            // Apply exit settings
+            exit: {
+                profit: settings.exitProfit,
+                profitDir: settings.exitProfitDir,
+                profitPts: settings.exitProfitPts,
+                profitUnit: settings.exitProfitUnit,
+                time: settings.exitTime,
+                timeVal: settings.exitTimeVal,
+                ma: settings.exitMa,
+                maCond: settings.exitMaCond,
+                maDir: settings.exitMaDir,
+                maPts: settings.exitMaPts,
+                bb: settings.exitBb,
+                bbCond: settings.exitBbCond,
+                bbTarget: settings.exitBbTarget,
+                bbDir: settings.exitBbDir,
+                bbPts: settings.exitBbPts,
+                loop: settings.exitLoop
+            },
+            // Update option defaults for this watch
+            _optDefaults: {
+                checkOpt1: settings.checkOpt1,
+                checkOpt2: settings.checkOpt2,
+                checkOpt3: settings.checkOpt3,
+                checkOpt4: settings.checkOpt4,
+                checkOpt5: settings.checkOpt5,
+                optAmount: settings.optAmount
+            }
+        };
+        
+        // Apply watch enabled state
+        if (settings.watchState === 'paused' && w.enabled) {
+            api(`/api/watch/${w.id}`, 'PUT', { ...w, enabled: false }).catch(() => {});
+        } else if (settings.watchState === 'enabled' && !w.enabled) {
+            api(`/api/watch/${w.id}`, 'PUT', { ...w, enabled: true }).catch(() => {});
+        }
+    }
+    localStorage.setItem('optSelections', JSON.stringify(state.optSelections));
+    closeSettings();
+    renderWatchList();
+    log(`已套用配置至 ${state.watchList.length} 個觀察項目，並儲存為預設`, 'success');
+}
+
+// Apply default settings when initializing optSelections for a new watch
+function applyDefaultSettings(watchId) {
+    const settings = getSettings();
+    if (!state.optSelections[watchId]) state.optSelections[watchId] = {};
+    const sel = state.optSelections[watchId];
+    
+    // Record option check defaults at creation time (won't change later)
+    sel._optDefaults = {
+        checkOpt1: settings.checkOpt1,
+        checkOpt2: settings.checkOpt2,
+        checkOpt3: settings.checkOpt3,
+        checkOpt4: settings.checkOpt4,
+        checkOpt5: settings.checkOpt5,
+        optAmount: settings.optAmount
+    };
+    
+    // Apply exit settings
+    sel.exit = {
+        profit: settings.exitProfit,
+        profitDir: settings.exitProfitDir,
+        profitPts: settings.exitProfitPts,
+        profitUnit: settings.exitProfitUnit,
+        time: settings.exitTime,
+        timeVal: settings.exitTimeVal,
+        ma: settings.exitMa,
+        maCond: settings.exitMaCond,
+        maDir: settings.exitMaDir,
+        maPts: settings.exitMaPts,
+        bb: settings.exitBb,
+        bbCond: settings.exitBbCond,
+        bbTarget: settings.exitBbTarget,
+        bbDir: settings.exitBbDir,
+        bbPts: settings.exitBbPts,
+        loop: settings.exitLoop
+    };
+    
+    // Apply stk check
+    sel.stk = { checked: settings.checkStk, amount: settings.futQty };
+    
+    return settings;
+}
+
 // ─── Bottom Sheet ───
 let sheetWatchId = null;
 let sheetMode = null;
@@ -494,6 +696,34 @@ function showAddWatch() {
     document.getElementById('add-watch-form').style.display = 'block';
     document.getElementById('w-symbol').focus();
     renderFavorites();
+    
+    // Pre-populate trading config from settings
+    const s = getSettings();
+    document.getElementById('w-auto-trade').checked = true;
+    document.getElementById('w-t-stk').checked = s.checkStk ?? false;
+    document.getElementById('w-t-stk-qty').value = s.futQty ?? 1;
+    document.getElementById('w-t-amount').value = s.optAmount ?? 5000;
+    
+    // Options: use OTM1-5 from settings (offset 1-5 maps to checkOpt1-5)
+    document.getElementById('w-t-call-0').checked = false;  // ATM
+    document.getElementById('w-t-call-1').checked = s.checkOpt1 ?? true;
+    document.getElementById('w-t-call-2').checked = s.checkOpt2 ?? false;
+    document.getElementById('w-t-call-3').checked = s.checkOpt3 ?? false;
+    document.getElementById('w-t-call-4').checked = s.checkOpt4 ?? false;
+    document.getElementById('w-t-put-0').checked = false;
+    document.getElementById('w-t-put-1').checked = s.checkOpt1 ?? true;
+    document.getElementById('w-t-put-2').checked = s.checkOpt2 ?? false;
+    document.getElementById('w-t-put-3').checked = s.checkOpt3 ?? false;
+    document.getElementById('w-t-put-4').checked = s.checkOpt4 ?? false;
+    
+    // Exit config
+    document.getElementById('w-exit-profit').checked = s.exitProfit ?? true;
+    document.getElementById('w-exit-profit-dir').value = s.exitProfitDir ?? '+';
+    document.getElementById('w-exit-profit-pts').value = s.exitProfitPts ?? 50;
+    document.getElementById('w-exit-profit-unit').value = s.exitProfitUnit ?? 'pct';
+    document.getElementById('w-exit-time').checked = s.exitTime ?? false;
+    document.getElementById('w-exit-time-val').value = s.exitTimeVal ?? '15:30';
+    document.getElementById('w-exit-loop').checked = s.exitLoop ?? true;
 }
 function hideAddWatch() {
     document.getElementById('add-watch-form').style.display = 'none';
@@ -532,6 +762,66 @@ function quickAddFromFav(symbol, secType, exchange, currency) {
     document.getElementById('w-symbol').focus();
 }
 
+/**
+ * Build trading_config object from add-watch form
+ */
+function buildTradingConfig() {
+    const autoTrade = document.getElementById('w-auto-trade')?.checked ?? true;
+    const amount = parseFloat(document.getElementById('w-t-amount')?.value) || 5000;
+    
+    const targets = [];
+    
+    // STK (underlying futures)
+    if (document.getElementById('w-t-stk')?.checked) {
+        const qty = parseInt(document.getElementById('w-t-stk-qty')?.value) || 1;
+        targets.push({ type: 'stk', offset: 0, amount: 0, qty });
+    }
+    
+    // Calls
+    for (let i = 0; i <= 4; i++) {
+        if (document.getElementById(`w-t-call-${i}`)?.checked) {
+            targets.push({ type: 'call', offset: i, amount, qty: 0 });
+        }
+    }
+    
+    // Puts
+    for (let i = 0; i <= 4; i++) {
+        if (document.getElementById(`w-t-put-${i}`)?.checked) {
+            targets.push({ type: 'put', offset: i, amount, qty: 0 });
+        }
+    }
+    
+    // Exit config
+    const exitConfig = {};
+    
+    // Limit take-profit
+    if (document.getElementById('w-exit-profit')?.checked) {
+        exitConfig.limit = {
+            enabled: true,
+            dir: document.getElementById('w-exit-profit-dir')?.value || '+',
+            pts: parseFloat(document.getElementById('w-exit-profit-pts')?.value) || 50,
+            unit: document.getElementById('w-exit-profit-unit')?.value || '%',
+        };
+    }
+    
+    // Time exit
+    if (document.getElementById('w-exit-time')?.checked) {
+        exitConfig.time = {
+            enabled: true,
+            value: document.getElementById('w-exit-time-val')?.value || '15:30',
+        };
+    }
+    
+    // Loop (re-arm after close)
+    exitConfig.loop = document.getElementById('w-exit-loop')?.checked ?? true;
+    
+    return {
+        auto_trade: autoTrade,
+        targets,
+        exit: exitConfig,
+    };
+}
+
 async function addWatch() {
     const symbol = document.getElementById('w-symbol').value.trim().toUpperCase();
     if (!symbol) return;
@@ -549,6 +839,10 @@ async function addWatch() {
     const confirmMaEnabled = document.getElementById('w-confirm-ma-enabled').checked;
     const strategyType = document.getElementById('w-strategy-type').value;
     const timeframe = document.getElementById('w-timeframe').value;
+    
+    // Build trading config
+    const tradingConfig = buildTradingConfig();
+    
     const item = {
         symbol,
         sec_type: secType,
@@ -564,12 +858,23 @@ async function addWatch() {
         bb_std_dev: strategyType === 'BB' ? parseFloat(document.getElementById('w-bb-std-dev').value) || 2 : 2,
         timeframe: timeframe,
         enabled: true,
+        trading_config: tradingConfig,
     };
     const res = await api('/api/watch', 'POST', item);
     if (res) {
         // Auto-save to favorites
         addFavorite(item);
         log(`已新增觀察: ${symbol}（已收藏 ⭐）`, 'success');
+        // Apply default settings to the new watch
+        if (res.id) {
+            const settings = applyDefaultSettings(res.id);
+            // Check if watch should be paused by default
+            if (settings.watchState === 'paused') {
+                // Update watch to set enabled=false
+                api(`/api/watch/${res.id}`, 'PUT', { ...res, enabled: false }).catch(() => {});
+            }
+            localStorage.setItem('optSelections', JSON.stringify(state.optSelections));
+        }
         // In standalone mode, push locally; otherwise let WebSocket watch_update handle it
         if (standaloneMode) {
             state.watchList.push(res);
@@ -1361,14 +1666,25 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
         return `<button class="expiry-tab ${isActive ? 'active' : ''}" onclick="selectExpiry('${watch.id}','${exp}')">${info.label || exp}${isActive ? ' ✓' : ''}</button>`;
     }).join('');
 
+    // Initialize optSelections with defaults if not exists
+    if (!state.optSelections[watch.id]) {
+        applyDefaultSettings(watch.id);
+    }
     const sel = state.optSelections[watch.id] || {};
+    // Use recorded defaults from creation time, not current settings
+    const optDefaults = sel._optDefaults || getSettings();
+    
     const renderSide = (opts, label, color) => {
         if (!opts.length) return '';
+        // Determine default check based on position (1-5) using recorded defaults
+        const defaultChecks = [optDefaults.checkOpt1, optDefaults.checkOpt2, optDefaults.checkOpt3, optDefaults.checkOpt4, optDefaults.checkOpt5];
         let rows = opts.map((o, i) => {
             const optKey = `${o.conId || o.right + '-' + i}`;
             const optSel = sel[optKey] || {};
-            const checked = optSel.checked ? 'checked' : '';
-            const amt = optSel.amount || 1000;
+            // Use saved check state, or default based on position if first time
+            const defaultCheck = i < 5 ? defaultChecks[i] : false;
+            const checked = optSel.checked !== undefined ? (optSel.checked ? 'checked' : '') : (defaultCheck ? 'checked' : '');
+            const amt = optSel.amount || optDefaults.optAmount;
             const mult = o.multiplier || 100;
             return `
             <div class="opt-row-wrap">

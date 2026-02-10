@@ -190,6 +190,195 @@ async def _close_trade_and_reset(trade: Dict, reason: str = ""):
     await broadcast({"type": "trade_update", "trade": trade})
 
 
+async def _auto_execute_trade(watch, signal, opt_cache, underlying_info):
+    """Auto-execute trade based on watch trading_config when signal fires.
+    
+    Args:
+        watch: WatchItem with trading_config
+        signal: Signal object (BUY or SELL)
+        opt_cache: Cached options {call_raw, put_raw, call, put, ma_price}
+        underlying_info: {conId, multiplier, price, ...}
+    """
+    config = watch.trading_config
+    if not config or not config.get("auto_trade"):
+        logger.info("Auto-trade disabled for %s, skipping execution", watch.symbol)
+        return
+    
+    targets = config.get("targets", [])
+    if not targets:
+        logger.info("No trading targets configured for %s", watch.symbol)
+        return
+    
+    logger.info("🤖 Auto-executing trade for %s: %s signal, %d targets",
+               watch.symbol, signal.signal_type, len(targets))
+    
+    # Determine which option side based on signal
+    # BUY signal (price touching MA from above, going up) → buy Calls
+    # SELL signal (price touching MA from below, going down) → buy Puts
+    option_side = "call" if signal.signal_type == "BUY" else "put"
+    right = "C" if signal.signal_type == "BUY" else "P"
+    
+    order_items = []
+    
+    for target in targets:
+        t_type = target.get("type")  # "stk", "call", "put"
+        offset = target.get("offset", 0)  # OTM offset (0=ATM, 1=OTM1, etc.)
+        amount = target.get("amount", 0)
+        qty = target.get("qty", 0)
+        
+        if t_type == "stk":
+            # Trade underlying (futures/stock)
+            if not underlying_info or not underlying_info.get("conId"):
+                logger.warning("No underlying info for STK target")
+                continue
+            
+            con_id = underlying_info["conId"]
+            multiplier = underlying_info.get("multiplier", 1)
+            price = underlying_info.get("price", 0)
+            
+            if watch.sec_type == "FUT":
+                # Futures: use direct qty
+                order_qty = qty if qty > 0 else 1
+            else:
+                # Stock: calculate from amount
+                if price > 0 and amount > 0:
+                    order_qty = int(amount / price)
+                else:
+                    order_qty = 1
+            
+            if order_qty > 0:
+                order_items.append({
+                    "conId": con_id,
+                    "type": "stk",
+                    "symbol": watch.symbol,
+                    "qty": order_qty,
+                    "price": price,
+                    "multiplier": multiplier,
+                })
+                logger.info("  → STK: qty=%d @ %.2f", order_qty, price)
+        
+        elif t_type in ("call", "put"):
+            # Only execute matching option side
+            # For BUY signal: only execute call targets
+            # For SELL signal: only execute put targets
+            if (signal.signal_type == "BUY" and t_type != "call") or \
+               (signal.signal_type == "SELL" and t_type != "put"):
+                logger.info("  → Skip %s (signal is %s)", t_type.upper(), signal.signal_type)
+                continue
+            
+            # Get option from cache
+            raw_key = f"{t_type}_raw"
+            raw_options = opt_cache.get(raw_key, [])
+            
+            if not raw_options or len(raw_options) <= offset:
+                logger.warning("No option at offset %d for %s", offset, t_type)
+                continue
+            
+            opt = raw_options[offset]
+            ask = opt.get("ask", 0)
+            multiplier = opt.get("multiplier", 100)
+            
+            if ask <= 0 or amount <= 0:
+                logger.warning("Invalid ask (%.2f) or amount (%.2f)", ask, amount)
+                continue
+            
+            # Calculate quantity: amount / (ask * multiplier)
+            order_qty = int(amount / (ask * multiplier))
+            if order_qty <= 0:
+                order_qty = 1  # Minimum 1 contract
+            
+            order_items.append({
+                "conId": opt.get("conId"),
+                "type": t_type,
+                "symbol": watch.symbol,
+                "right": opt.get("right", "C" if t_type == "call" else "P"),
+                "strike": opt.get("strike"),
+                "expiry": opt.get("expiry"),
+                "qty": order_qty,
+                "price": ask,
+                "multiplier": multiplier,
+                "amount": amount,
+            })
+            logger.info("  → %s OTM%d: strike=%.2f exp=%s qty=%d @ %.2f",
+                       t_type.upper(), offset, opt.get("strike", 0), 
+                       opt.get("expiry", "?"), order_qty, ask)
+    
+    if not order_items:
+        logger.info("No valid order items to execute")
+        return
+    
+    # Place orders
+    trade_id = str(uuid.uuid4())[:8]
+    orders = []
+    
+    for item in order_items:
+        try:
+            action = "BUY"  # Always buy options/underlying when signal fires
+            result = await ib.place_market_order(item["conId"], action, item["qty"])
+            item["order_result"] = result
+            item["qty_requested"] = item["qty"]
+            orders.append(item)
+            logger.info("✅ Order placed: %s %d %s @ MKT", action, item["qty"], item.get("symbol"))
+        except Exception as e:
+            logger.error("❌ Order failed for %s: %s", item.get("symbol"), e)
+    
+    if orders:
+        exit_cfg = config.get("exit", {})
+        
+        # Place limit exit orders if configured
+        limit_cfg = exit_cfg.get("limit", {})
+        if limit_cfg.get("enabled"):
+            limit_dir = limit_cfg.get("dir", "+")
+            limit_pts = float(limit_cfg.get("pts", 50))
+            limit_unit = limit_cfg.get("unit", "pct")
+            
+            for order_info in orders:
+                result = order_info.get("order_result", {})
+                fill_price = result.get("avgFillPrice", 0)
+                if fill_price <= 0:
+                    # Use ask price as estimate if no fill yet
+                    fill_price = order_info.get("price", 0)
+                
+                if fill_price > 0:
+                    if limit_unit == "pct":
+                        if limit_dir == "+":
+                            limit_price = math.ceil(fill_price * (1 + limit_pts / 100))
+                        else:
+                            limit_price = math.floor(fill_price * (1 - limit_pts / 100))
+                    else:
+                        if limit_dir == "+":
+                            limit_price = round(fill_price + limit_pts, 2)
+                        else:
+                            limit_price = round(fill_price - limit_pts, 2)
+                    
+                    try:
+                        limit_result = await ib.place_limit_order(
+                            order_info["conId"], "SELL", 
+                            order_info.get("qty_requested", 1), limit_price
+                        )
+                        order_info["exit_limit_order"] = limit_result
+                        logger.info("📈 Limit exit placed: SELL %d @ %.2f", 
+                                   order_info.get("qty_requested", 1), limit_price)
+                    except Exception as e:
+                        logger.error("Failed to place limit exit: %s", e)
+        
+        # Create active trade
+        trade = {
+            "id": trade_id,
+            "watch_id": watch.id,
+            "symbol": watch.symbol,
+            "direction": signal.signal_type,
+            "orders": orders,
+            "exit": exit_cfg,
+            "status": "filled",
+            "entry_time": datetime.now().isoformat(),
+            "entry_price": signal.price,
+        }
+        _active_trades[trade_id] = trade
+        await broadcast({"type": "trade_update", "trade": trade})
+        logger.info("📊 Trade created: %s with %d orders", trade_id, len(orders))
+
+
 async def _init_new_watch(watch):
     """Initialize a newly added watch item during live monitoring.
 
@@ -433,6 +622,10 @@ async def monitor_loop():
                         "options": None,
                         "underlying": {"symbol": watch.symbol, "price": price, "sec_type": watch.sec_type},
                     })
+                    
+                    # 🤖 Auto-execute trade if configured
+                    if watch.trading_config and watch.trading_config.get("auto_trade"):
+                        await _auto_execute_trade(watch, signal, opt_cache, underlying_info)
 
             # ── Exit strategy monitoring ──
             for trade_id, trade in list(_active_trades.items()):
@@ -618,6 +811,21 @@ app = FastAPI(title="Trading Monitor", lifespan=lifespan)
 
 
 # --- Pydantic models ---
+class TradingTarget(BaseModel):
+    """Single trading target (option or underlying)."""
+    type: str  # "stk" | "call" | "put"
+    offset: int = 0  # 0=ATM, 1=OTM1, 2=OTM2, etc. (only for options)
+    amount: float = 0  # USD amount (for options/stocks)
+    qty: int = 0  # Direct quantity (for futures underlying)
+
+
+class TradingConfig(BaseModel):
+    """Trading configuration stored with each watch item."""
+    auto_trade: bool = True
+    targets: List[TradingTarget] = []
+    exit: Dict[str, Any] = {}  # {limit: {...}, time: {...}, ma: {...}, bb: {...}, loop: bool}
+
+
 class OrderRequest(BaseModel):
     watch_id: str
     items: List[Dict[str, Any]]  # [{conId, right, strike, expiry, amount, ask}]
@@ -639,6 +847,7 @@ class WatchItemCreate(BaseModel):
     strategy_type: str = "MA"  # MA or BB
     bb_std_dev: float = 2.0
     timeframe: str = "D"  # D=日線, W=週線, M=月線
+    trading_config: Optional[TradingConfig] = None  # Auto-trading configuration
 
 
 class WatchItemUpdate(BaseModel):
@@ -656,6 +865,7 @@ class WatchItemUpdate(BaseModel):
     contract_month: Optional[str] = None
     direction: Optional[str] = None
     timeframe: Optional[str] = None
+    trading_config: Optional[TradingConfig] = None
 
 
 # --- API Routes ---
@@ -792,6 +1002,15 @@ async def get_watch_list():
 
 @app.post("/api/watch")
 async def add_watch(item: WatchItemCreate):
+    # Convert trading_config Pydantic model to dict if present
+    trading_cfg = None
+    if item.trading_config:
+        trading_cfg = {
+            "auto_trade": item.trading_config.auto_trade,
+            "targets": [t.model_dump() for t in item.trading_config.targets],
+            "exit": item.trading_config.exit,
+        }
+    
     watch = WatchItem(
         id=str(uuid.uuid4())[:8],
         symbol=item.symbol.upper(),
@@ -808,6 +1027,7 @@ async def add_watch(item: WatchItemCreate):
         strategy_type=item.strategy_type,
         bb_std_dev=item.bb_std_dev,
         timeframe=item.timeframe,
+        trading_config=trading_cfg,
     )
     engine.add_watch(watch)
     save_config()

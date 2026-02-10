@@ -9,7 +9,7 @@
     <title>Trading Monitor</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css?v=68">
+    <link rel="stylesheet" href="/static/style.css?v=70">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -53,6 +53,7 @@
                 <button class="btn btn-sm btn-success" id="btn-monitor" onclick="toggleMonitor()">啟動監控</button>
                 <span style="color:var(--border)">|</span>
                 <button class="btn btn-sm" id="btn-demo" onclick="toggleDemoMode()" title="Demo模式">🎮</button>
+                <button class="btn btn-sm" onclick="openSettings()" title="設定">⚙️</button>
                 <button class="btn btn-sm" onclick="logout()" title="登出">🚪</button>
             </div>
         </div>
@@ -180,8 +181,74 @@
                                 </label>
                                 <input type="number" id="w-confirm-ma-period" value="55" min="2" style="width:60px;" placeholder="週期">
                             </div>
+                        </div>
+                        <!-- Row 4: 交易配置 (可折疊) -->
+                        <details class="trading-config-section" open>
+                            <summary>🤖 自動交易配置</summary>
+                            <div class="form-row" style="margin-top:8px;">
+                                <div class="form-group" style="flex:0;">
+                                    <label style="display:flex;align-items:center;gap:4px;">
+                                        <input type="checkbox" id="w-auto-trade" checked> 啟用自動下單
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>交易標的</label>
+                                    <div class="trading-targets">
+                                        <label><input type="checkbox" id="w-t-stk"> 期貨本體</label>
+                                        <input type="number" id="w-t-stk-qty" value="1" min="1" step="1" style="width:50px;" placeholder="口">
+                                    </div>
+                                    <div class="trading-targets" style="margin-top:4px;">
+                                        <span style="font-size:11px;color:var(--text-secondary);">Call:</span>
+                                        <label><input type="checkbox" id="w-t-call-0"> ATM</label>
+                                        <label><input type="checkbox" id="w-t-call-1" checked> OTM1</label>
+                                        <label><input type="checkbox" id="w-t-call-2"> OTM2</label>
+                                        <label><input type="checkbox" id="w-t-call-3"> OTM3</label>
+                                        <label><input type="checkbox" id="w-t-call-4"> OTM4</label>
+                                    </div>
+                                    <div class="trading-targets" style="margin-top:4px;">
+                                        <span style="font-size:11px;color:var(--text-secondary);">Put:</span>
+                                        <label><input type="checkbox" id="w-t-put-0"> ATM</label>
+                                        <label><input type="checkbox" id="w-t-put-1" checked> OTM1</label>
+                                        <label><input type="checkbox" id="w-t-put-2"> OTM2</label>
+                                        <label><input type="checkbox" id="w-t-put-3"> OTM3</label>
+                                        <label><input type="checkbox" id="w-t-put-4"> OTM4</label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Options 金額 (USD)</label>
+                                    <input type="number" id="w-t-amount" value="5000" min="100" step="100">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>出場策略</label>
+                                    <div class="exit-options">
+                                        <label><input type="checkbox" id="w-exit-profit" checked> 限價止盈</label>
+                                        <select id="w-exit-profit-dir" style="width:45px;">
+                                            <option value="+">+</option>
+                                            <option value="-">−</option>
+                                        </select>
+                                        <input type="number" id="w-exit-profit-pts" value="50" min="1" step="1" style="width:50px;">
+                                        <select id="w-exit-profit-unit" style="width:50px;">
+                                            <option value="pct">%</option>
+                                            <option value="pts">點</option>
+                                        </select>
+                                    </div>
+                                    <div class="exit-options" style="margin-top:4px;">
+                                        <label><input type="checkbox" id="w-exit-time"> 時間出場</label>
+                                        <input type="time" id="w-exit-time-val" value="15:30" style="width:90px;">
+                                    </div>
+                                    <div class="exit-options" style="margin-top:4px;">
+                                        <label><input type="checkbox" id="w-exit-loop" checked> 循環交易</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                        <!-- Row 5: 按鈕 -->
+                        <div class="form-row" style="margin-top:12px;">
                             <div class="form-group" style="flex:0;">
-                                <label>&nbsp;</label>
                                 <div style="display:flex;gap:6px;">
                                     <button class="btn btn-success btn-sm" onclick="addWatch()">確定</button>
                                     <button class="btn btn-sm" onclick="hideAddWatch()">取消</button>
@@ -278,6 +345,82 @@
         </div>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-box modal-lg">
+            <h3>⚙️ 預設配置</h3>
+            
+            <div class="settings-section">
+                <div class="settings-title">📋 交易標的勾選</div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-check-stk"> 標的</label>
+                </div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-check-opt1"> 選擇權①</label>
+                    <label><input type="checkbox" id="cfg-check-opt2"> 選擇權②</label>
+                    <label><input type="checkbox" id="cfg-check-opt3"> 選擇權③</label>
+                </div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-check-opt4"> 選擇權④</label>
+                    <label><input type="checkbox" id="cfg-check-opt5"> 選擇權⑤</label>
+                </div>
+                <div class="settings-hint">（選擇權按價格由近至遠排序）</div>
+            </div>
+            
+            <div class="settings-section">
+                <div class="settings-title">💵 交易金額</div>
+                <div class="settings-row">
+                    <label>選擇權金額 $<input type="number" id="cfg-opt-amount" value="1000" min="100" step="100" class="settings-input"></label>
+                    <label>期貨口數 <input type="number" id="cfg-fut-qty" value="1" min="1" step="1" class="settings-input"></label>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <div class="settings-title">📤 平倉策略</div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-exit-profit"> 限價止盈</label>
+                    <select id="cfg-exit-profit-dir"><option value="+">+</option><option value="-">-</option></select>
+                    <input type="number" id="cfg-exit-profit-pts" value="0.5" step="0.1" min="0" class="settings-input-sm">
+                    <select id="cfg-exit-profit-unit"><option value="pts">點</option><option value="pct">%</option></select>
+                </div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-exit-time"> 時間平倉</label>
+                    <input type="time" id="cfg-exit-time-val" value="15:55" class="settings-input">
+                </div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-exit-ma"> 均線平倉</label>
+                    <select id="cfg-exit-ma-cond"><option value="above">高於</option><option value="below">低於</option></select>
+                    MA <select id="cfg-exit-ma-dir"><option value="+">+</option><option value="-">-</option></select>
+                    <input type="number" id="cfg-exit-ma-pts" value="5" step="1" min="0" class="settings-input-sm"> 點
+                </div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-exit-bb"> BB平倉</label>
+                    <select id="cfg-exit-bb-cond"><option value="above">高於</option><option value="below">低於</option></select>
+                    <select id="cfg-exit-bb-target"><option value="middle">中軌</option><option value="opposite">反向軌</option></select>
+                    <select id="cfg-exit-bb-dir"><option value="+">+</option><option value="-">-</option></select>
+                    <input type="number" id="cfg-exit-bb-pts" value="0" step="0.5" min="0" class="settings-input-sm"> 點
+                </div>
+                <div class="settings-row">
+                    <label><input type="checkbox" id="cfg-exit-loop" checked> 閉環（平倉後繼續監控）</label>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <div class="settings-title">▶️ Watch 狀態</div>
+                <div class="settings-row">
+                    <label><input type="radio" name="cfg-watch-state" value="enabled" checked> 新增時啟用</label>
+                    <label><input type="radio" name="cfg-watch-state" value="paused"> 新增時暫停</label>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn" onclick="closeSettings()">取消</button>
+                <button class="btn btn-primary" onclick="applySettingsToAll()">套用至現有清單</button>
+                <button class="btn btn-success" onclick="saveSettings()">儲存為預設</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Close Position Modal -->
     <div id="close-modal" class="modal-overlay hidden">
         <div class="modal-box">
@@ -308,6 +451,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=68"></script>
+    <script src="/static/app.js?v=73"></script>
 </body>
 </html>

@@ -47,6 +47,7 @@ class WatchItem:
     strategy_type: str = "MA"  # MA or BB (Bollinger Bands)
     bb_std_dev: float = 2.0  # Bollinger Bands standard deviation multiplier
     timeframe: str = "D"  # D=日線, W=週線, M=月線
+    trading_config: Optional[Dict[str, Any]] = None  # Auto-trading config: {auto_trade, targets, exit}
 
     def to_dict(self):
         return asdict(self)

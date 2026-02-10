@@ -84,7 +84,58 @@
       "strategy_type": "BB",
       "bb_std_dev": 2.0,
       "timeframe": "D"
+    },
+    {
+      "id": "8fdbc518",
+      "symbol": "NQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0,
+      "timeframe": "D"
+    },
+    {
+      "id": "83026f40",
+      "symbol": "ES",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0,
+      "timeframe": "D"
+    },
+    {
+      "id": "d5055ab1",
+      "symbol": "NQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": false,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0,
+      "timeframe": "D"
     }
   ],
-  "saved_at": "2026-02-09T15:12:22.039682"
+  "saved_at": "2026-02-09T18:10:42.834314"
 }
