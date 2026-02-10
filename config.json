@@ -52,7 +52,11 @@
       "strategy_type": "MA",
       "bb_std_dev": 2.0,
       "timeframe": "D",
-      "trading_config": null
+      "trading_config": {
+        "auto_trade": false,
+        "targets": [],
+        "exit": {}
+      }
     },
     {
       "id": "d5055ab1",
@@ -122,5 +126,5 @@
       }
     }
   ],
-  "saved_at": "2026-02-09T19:49:53.226352"
+  "saved_at": "2026-02-09T19:54:15.705440"
 }

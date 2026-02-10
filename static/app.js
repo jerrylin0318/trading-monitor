@@ -1281,6 +1281,7 @@ function renderWatchList() {
                     <span class="info-tag">MA${w.ma_period}</span>
                     <span class="info-tag">${strategyType === 'BB' ? `σ${w.bb_std_dev || 2}` : `N${w.n_points}`}</span>
                     ${confirmEnabled && strategyType === 'MA' ? `<span class="info-tag" style="background:${confirmOk ? 'var(--green)' : 'var(--red)'}">確認MA${w.confirm_ma_period || data.confirm_ma_period}${confirmStatus}</span>` : ''}
+                    <span class="info-tag" style="background:${w.trading_config?.auto_trade ? 'var(--green)' : 'var(--text-muted)'}">${w.trading_config?.auto_trade ? '🤖 自動' : '🚫 手動'}</span>
                 </div>
                 <div class="watch-price-row">
                     <span class="price-item">💰 ${price}</span>
