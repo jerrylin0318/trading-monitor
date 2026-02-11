@@ -1528,25 +1528,43 @@ function updateLiveCandle(watchId, price) {
         chartSeries[watchId].confirmMa.update({ time: currentPeriodTime, value: data.confirm_ma_value });
     }
     
-    // Use day OHLC from IB if available
-    const dayOpen = data?.day_open || price;
-    const dayHigh = data?.day_high || price;
-    const dayLow = data?.day_low || price;
+    // For daily: use IB's day OHLC
+    // For weekly/monthly: track cumulative OHLC since period start
+    const isDaily = timeframe === 'D' || timeframe === 'H';
     
     if (!todayCandle[watchId] || todayCandle[watchId].time < currentPeriodTime) {
         // New period - create new candle
-        todayCandle[watchId] = {
-            time: currentPeriodTime,
-            open: dayOpen,
-            high: dayHigh,
-            low: dayLow,
-            close: price,
-        };
+        if (isDaily) {
+            // Daily/Hourly: use IB's day OHLC for accurate intraday data
+            todayCandle[watchId] = {
+                time: currentPeriodTime,
+                open: data?.day_open || price,
+                high: data?.day_high || price,
+                low: data?.day_low || price,
+                close: price,
+            };
+        } else {
+            // Weekly/Monthly: start fresh, accumulate from current price
+            todayCandle[watchId] = {
+                time: currentPeriodTime,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+            };
+        }
     } else {
         // Update existing candle
         todayCandle[watchId].close = price;
-        todayCandle[watchId].high = Math.max(todayCandle[watchId].high, dayHigh);
-        todayCandle[watchId].low = Math.min(todayCandle[watchId].low, dayLow);
+        if (isDaily) {
+            // Daily: use IB's tracked high/low
+            todayCandle[watchId].high = Math.max(todayCandle[watchId].high, data?.day_high || price);
+            todayCandle[watchId].low = Math.min(todayCandle[watchId].low, data?.day_low || price);
+        } else {
+            // Weekly/Monthly: track high/low ourselves
+            todayCandle[watchId].high = Math.max(todayCandle[watchId].high, price);
+            todayCandle[watchId].low = Math.min(todayCandle[watchId].low, price);
+        }
     }
     
     chartSeries[watchId].candle.update(todayCandle[watchId]);
