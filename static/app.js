@@ -2050,7 +2050,13 @@ function renderInlineOptions(watch, data, callOptsData, putOptsData, price) {
 async function selectExpiry(watchId, expiry) {
     if (state.latestData[watchId]) {
         state.latestData[watchId].selected_expiry = expiry;
-        renderWatchList();
+        
+        // Re-render the options panel if it's open
+        if (sheetWatchId === watchId && sheetMode === 'options') {
+            renderSheetContent(watchId, 'options');
+        } else {
+            renderWatchList();
+        }
 
         // Fetch latest prices for this expiry (snapshot)
         if (!standaloneMode) {
