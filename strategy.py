@@ -87,6 +87,7 @@ class ThresholdCache:
     last_calc: float         # unix timestamp
     last_price: float = 0.0
     signal_fired: bool = False  # prevent repeated signals in same zone entry
+    qualified: bool = True  # whether watch is qualified based on initial price position
 
     # Display data for frontend
     ma_direction: str = "FLAT"
@@ -425,6 +426,37 @@ class StrategyEngine:
         if not watch or not watch.enabled:
             return None
         
+        # ─── Initial qualification check (only on first price) ───
+        # LONG: price must be ABOVE MA at startup (waiting for pullback)
+        # SHORT: price must be BELOW MA at startup (waiting for rally)
+        if cache.last_price == 0:
+            # First price received — check if qualified
+            if cache.strategy_type == "MA":
+                # MA strategy: check against MA
+                if watch.direction == "LONG" and price < cache.ma_value:
+                    cache.qualified = False
+                    logger.info("⚠️ %s 不合格: 啟動時價格 %.2f 在 MA%.0f=%.2f 之下 (LONG需在MA上方)",
+                               watch.symbol, price, cache.ma_period, cache.ma_value)
+                elif watch.direction == "SHORT" and price > cache.ma_value:
+                    cache.qualified = False
+                    logger.info("⚠️ %s 不合格: 啟動時價格 %.2f 在 MA%.0f=%.2f 之上 (SHORT需在MA下方)",
+                               watch.symbol, price, cache.ma_period, cache.ma_value)
+            else:
+                # BB strategy: check against middle band (MA)
+                if watch.direction == "LONG" and price < cache.ma_value:
+                    cache.qualified = False
+                    logger.info("⚠️ %s 不合格: 啟動時價格 %.2f 在中軌 %.2f 之下 (LONG需在中軌上方)",
+                               watch.symbol, price, cache.ma_value)
+                elif watch.direction == "SHORT" and price > cache.ma_value:
+                    cache.qualified = False
+                    logger.info("⚠️ %s 不合格: 啟動時價格 %.2f 在中軌 %.2f 之上 (SHORT需在中軌下方)",
+                               watch.symbol, price, cache.ma_value)
+        
+        # If not qualified, skip signal checking
+        if not cache.qualified:
+            cache.last_price = price
+            return None
+        
         # Calculate real-time MA using historical closes + current price
         if cache.hist_closes:
             realtime_ma = (sum(cache.hist_closes) + price) / len(cache.hist_closes + [price])
@@ -532,6 +564,8 @@ class StrategyEngine:
             "bb_upper": round(bb_upper, 4) if bb_upper else None,
             "bb_lower": round(bb_lower, 4) if bb_lower else None,
             "bb_middle": round(bb_middle, 4) if bb_middle else None,
+            # Qualification status
+            "qualified": cache.qualified,
         }
 
         cache.last_price = price
