@@ -79,6 +79,21 @@ function getSettings() {
     return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
 }
 
+// Theme management
+function getTheme() {
+    return localStorage.getItem('theme') || 'dark';
+}
+
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+}
+
+function initTheme() {
+    const theme = getTheme();
+    setTheme(theme);
+}
+
 function openSettings() {
     const s = getSettings();
     document.getElementById('cfg-check-stk').checked = s.checkStk;
@@ -106,6 +121,14 @@ function openSettings() {
     document.getElementById('cfg-exit-bb-pts').value = s.exitBbPts;
     document.getElementById('cfg-exit-loop').checked = s.exitLoop;
     document.querySelector(`input[name="cfg-watch-state"][value="${s.watchState}"]`).checked = true;
+    // Theme
+    const theme = getTheme();
+    const themeRadio = document.querySelector(`input[name="cfg-theme"][value="${theme}"]`);
+    if (themeRadio) themeRadio.checked = true;
+    // Add theme change listener
+    document.querySelectorAll('input[name="cfg-theme"]').forEach(radio => {
+        radio.onchange = () => setTheme(radio.value);
+    });
     document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -2555,6 +2578,9 @@ function initApp() {
 }
 
 window.addEventListener('load', async () => {
+    // Initialize theme first (before any rendering)
+    initTheme();
+    
     // Check if already authenticated
     const isAuthed = await checkAuth();
     if (isAuthed) {

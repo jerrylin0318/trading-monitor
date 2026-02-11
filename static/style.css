@@ -1,5 +1,7 @@
-/* Trading Monitor — Dark Trading Theme */
-:root {
+/* Trading Monitor — Theme Variables */
+
+/* Dark Theme (default) */
+:root, [data-theme="dark"] {
     --bg-primary: #0d1117;
     --bg-secondary: #161b22;
     --bg-card: #1c2128;
@@ -20,6 +22,30 @@
     --purple: #bc8cff;
     --radius: 8px;
     --shadow: 0 2px 8px rgba(0,0,0,.3);
+}
+
+/* Eye Care Theme (warm sepia tones) */
+[data-theme="eyecare"] {
+    --bg-primary: #f5f0e6;
+    --bg-secondary: #ebe5d9;
+    --bg-card: #faf7f0;
+    --bg-input: #e8e2d5;
+    --border: #d4cbb8;
+    --border-light: #c9bfaa;
+    --text-primary: #3d3929;
+    --text-secondary: #5c5647;
+    --text-muted: #7a7466;
+    --green: #2e8b3d;
+    --green-dim: #4a9e58;
+    --red: #c9302c;
+    --red-dim: #d9534f;
+    --blue: #2563eb;
+    --blue-dim: #3b82f6;
+    --yellow: #b8860b;
+    --orange: #cc6600;
+    --purple: #7c3aed;
+    --radius: 8px;
+    --shadow: 0 2px 8px rgba(0,0,0,.1);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
