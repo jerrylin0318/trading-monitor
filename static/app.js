@@ -1502,14 +1502,11 @@ async function updateOptionPrices(watchId) {
 
 // Update current period's live candle and MA with new price
 function updateLiveCandle(watchId, price) {
-    if (!price || !chartSeries[watchId]?.candle) {
-        console.log('updateLiveCandle skip:', watchId, 'price:', price, 'candle:', !!chartSeries[watchId]?.candle);
-        return;
-    }
+    if (!price || !chartSeries[watchId]?.candle) return;
     
     const data = state.latestData[watchId];
     const timeframe = chartTimeframes[watchId] || 'D';
-    console.log('updateLiveCandle:', watchId, 'tf:', timeframe, 'price:', price);
+    // Debug removed
     
     // Calculate current period start time
     const now = new Date();
@@ -1577,7 +1574,7 @@ function updateLiveCandle(watchId, price) {
         };
     }
     
-    console.log('Updating candle:', watchId, todayCandle[watchId]);
+    // Debug removed
     chartSeries[watchId].candle.update(todayCandle[watchId]);
 }
 
