@@ -94,6 +94,30 @@ function initTheme() {
     setTheme(theme);
 }
 
+// Get chart colors based on current theme
+function getChartColors() {
+    const theme = getTheme();
+    if (theme === 'eyecare') {
+        return {
+            background: '#faf7f0',
+            textColor: '#5c5647',
+            gridColor: '#e8e2d5',
+            borderColor: '#d4cbb8',
+            upColor: '#2e8b3d',
+            downColor: '#c9302c'
+        };
+    }
+    // Dark theme (default)
+    return {
+        background: '#0d1117',
+        textColor: '#8b949e',
+        gridColor: '#21262d',
+        borderColor: '#30363d',
+        upColor: '#238636',
+        downColor: '#da3633'
+    };
+}
+
 function openSettings() {
     const s = getSettings();
     document.getElementById('cfg-check-stk').checked = s.checkStk;
@@ -286,21 +310,22 @@ async function renderChartInSheet(watchId) {
     }
     
     const chartHeight = container.clientHeight || 350;
+    const colors = getChartColors();
     const chart = LightweightCharts.createChart(container, {
         width: container.clientWidth, height: chartHeight,
-        layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
-        grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+        layout: { background: { color: colors.background }, textColor: colors.textColor },
+        grid: { vertLines: { color: colors.gridColor }, horzLines: { color: colors.gridColor } },
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        rightPriceScale: { borderColor: '#30363d' },
-        timeScale: { borderColor: '#30363d', timeVisible: true, barSpacing: 10, rightOffset: 30 }
+        rightPriceScale: { borderColor: colors.borderColor },
+        timeScale: { borderColor: colors.borderColor, timeVisible: true, barSpacing: 10, rightOffset: 30 }
     });
     charts[watchId] = chart;
     
     // Candlestick series
     const candleSeries = chart.addCandlestickSeries({
-        upColor: '#238636', downColor: '#da3633',
-        borderUpColor: '#238636', borderDownColor: '#da3633',
-        wickUpColor: '#238636', wickDownColor: '#da3633'
+        upColor: colors.upColor, downColor: colors.downColor,
+        borderUpColor: colors.upColor, borderDownColor: colors.downColor,
+        wickUpColor: colors.upColor, wickDownColor: colors.downColor
     });
     candleSeries.setData(chartData.candles);
     
@@ -1684,25 +1709,26 @@ async function renderChart(watchId) {
     }
     
     // Create chart
+    const colors = getChartColors();
     const chart = LightweightCharts.createChart(container, {
         width: container.clientWidth,
         height: 280,
         layout: {
-            background: { color: '#0d1117' },
-            textColor: '#8b949e',
+            background: { color: colors.background },
+            textColor: colors.textColor,
         },
         grid: {
-            vertLines: { color: '#21262d' },
-            horzLines: { color: '#21262d' },
+            vertLines: { color: colors.gridColor },
+            horzLines: { color: colors.gridColor },
         },
         crosshair: {
             mode: LightweightCharts.CrosshairMode.Normal,
         },
         rightPriceScale: {
-            borderColor: '#30363d',
+            borderColor: colors.borderColor,
         },
         timeScale: {
-            borderColor: '#30363d',
+            borderColor: colors.borderColor,
             timeVisible: true,
         },
     });
@@ -1710,12 +1736,12 @@ async function renderChart(watchId) {
     
     // Candlestick series
     const candleSeries = chart.addCandlestickSeries({
-        upColor: '#238636',
-        downColor: '#da3633',
-        borderUpColor: '#238636',
-        borderDownColor: '#da3633',
-        wickUpColor: '#238636',
-        wickDownColor: '#da3633',
+        upColor: colors.upColor,
+        downColor: colors.downColor,
+        borderUpColor: colors.upColor,
+        borderDownColor: colors.downColor,
+        wickUpColor: colors.upColor,
+        wickDownColor: colors.downColor,
     });
     candleSeries.setData(chartData.candles);
     
