@@ -199,7 +199,87 @@
           "loop": false
         }
       }
+    },
+    {
+      "id": "ae15a00b",
+      "symbol": "MNQ",
+      "sec_type": "FUT",
+      "exchange": "CME",
+      "currency": "USD",
+      "ma_period": 21,
+      "n_points": 5.0,
+      "enabled": true,
+      "contract_month": "202603",
+      "direction": "LONG",
+      "confirm_ma_enabled": false,
+      "confirm_ma_period": 55,
+      "strategy_type": "MA",
+      "bb_std_dev": 2.0,
+      "timeframe": "W",
+      "trading_config": {
+        "auto_trade": true,
+        "targets": {
+          "stk": {
+            "enabled": true,
+            "qty": 3,
+            "amount": 0
+          },
+          "call_0": {
+            "enabled": false,
+            "amount": 100
+          },
+          "call_1": {
+            "enabled": true,
+            "amount": 100
+          },
+          "call_2": {
+            "enabled": false,
+            "amount": 100
+          },
+          "call_3": {
+            "enabled": false,
+            "amount": 100
+          },
+          "call_4": {
+            "enabled": true,
+            "amount": 100
+          },
+          "put_0": {
+            "enabled": false,
+            "amount": 100
+          },
+          "put_1": {
+            "enabled": true,
+            "amount": 100
+          },
+          "put_2": {
+            "enabled": false,
+            "amount": 100
+          },
+          "put_3": {
+            "enabled": false,
+            "amount": 100
+          },
+          "put_4": {
+            "enabled": true,
+            "amount": 100
+          }
+        },
+        "exit": {
+          "limit": {
+            "enabled": true,
+            "dir": "+",
+            "pts": 10,
+            "unit": "pts"
+          },
+          "time": {
+            "enabled": false,
+            "value": "15:55"
+          },
+          "loop": false
+        }
+      }
     }
   ],
-  "saved_at": "2026-02-10T21:56:18.915616"
+  "saved_at": "2026-02-10T22:07:31.838748"
 }

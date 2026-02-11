@@ -577,6 +577,10 @@ async def monitor_loop():
 
             # Read all streaming prices (fast — no API calls, just reads cached ticker values)
             price_data = await ib.read_prices()
+            
+            if price_data:
+                logger.info("📊 Read %d prices: %s", len(price_data), 
+                           {k: v.get('price', v) if isinstance(v, dict) else v for k, v in list(price_data.items())[:2]})
 
             for watch_id, pdata in price_data.items():
                 watch = engine.watch_list.get(watch_id)
@@ -1734,3 +1738,20 @@ app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), na
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8888)
+
+
+@app.get("/api/debug/prices")
+async def debug_prices():
+    """Debug: read current streaming prices."""
+    if DEMO_MODE:
+        return {"demo": True}
+    prices = await ib.read_prices()
+    result = {}
+    for watch_id, data in prices.items():
+        watch = engine.watch_list.get(watch_id)
+        result[watch_id] = {
+            "symbol": watch.symbol if watch else "?",
+            "timeframe": watch.timeframe if watch else "?",
+            **data
+        }
+    return result

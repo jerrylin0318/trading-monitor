@@ -317,11 +317,26 @@ async function renderChartInSheet(watchId) {
         const dayHigh = data.day_high || data.current_price;
         const dayLow = data.day_low || data.current_price;
         
-        if (lastCandle && lastCandle.time === currentPeriodTime) {
-            // Update existing current period candle with today's data
+        // For weekly/monthly: IB uses Friday as timestamp, not Monday
+        // So we update the last candle if it's within the current period
+        const isWeeklyMonthly = timeframe === 'W' || timeframe === 'M';
+        const periodSeconds = timeframe === 'W' ? 7 * 86400 : 31 * 86400;
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        
+        if (isWeeklyMonthly && lastCandle && (nowSeconds - lastCandle.time) < periodSeconds) {
+            // Update the last candle (current period) - IB already provided it
+            todayCandle[watchId] = {
+                time: lastCandle.time,  // Keep IB's timestamp
+                open: lastCandle.open,
+                high: Math.max(lastCandle.high, data.current_price),
+                low: Math.min(lastCandle.low, data.current_price),
+                close: data.current_price,
+            };
+        } else if (lastCandle && lastCandle.time === currentPeriodTime) {
+            // Daily/Hourly: Update existing current period candle
             todayCandle[watchId] = {
                 time: currentPeriodTime,
-                open: lastCandle.open,  // Keep original open
+                open: lastCandle.open,
                 high: Math.max(lastCandle.high, dayHigh),
                 low: Math.min(lastCandle.low, dayLow),
                 close: data.current_price,
@@ -1486,10 +1501,14 @@ async function updateOptionPrices(watchId) {
 
 // Update current period's live candle and MA with new price
 function updateLiveCandle(watchId, price) {
-    if (!price || !chartSeries[watchId]?.candle) return;
+    if (!price || !chartSeries[watchId]?.candle) {
+        console.log('updateLiveCandle skip:', watchId, 'price:', price, 'candle:', !!chartSeries[watchId]?.candle);
+        return;
+    }
     
     const data = state.latestData[watchId];
     const timeframe = chartTimeframes[watchId] || 'D';
+    console.log('updateLiveCandle:', watchId, 'tf:', timeframe, 'price:', price);
     
     // Calculate current period start time
     const now = new Date();
@@ -1510,54 +1529,35 @@ function updateLiveCandle(watchId, price) {
         currentPeriodTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
     }
     
+    // Use todayCandle's time if available (important for weekly/monthly where IB uses Friday)
+    const candleTime = todayCandle[watchId]?.time || currentPeriodTime;
+    
     // Update live MA point (middle line for BB)
     if (data?.ma_value && chartSeries[watchId]?.ma) {
-        chartSeries[watchId].ma.update({ time: currentPeriodTime, value: data.ma_value });
+        chartSeries[watchId].ma.update({ time: candleTime, value: data.ma_value });
     }
     
     // Update live BB bands
     if (data?.bb_upper && chartSeries[watchId]?.bbUpper) {
-        chartSeries[watchId].bbUpper.update({ time: currentPeriodTime, value: data.bb_upper });
+        chartSeries[watchId].bbUpper.update({ time: candleTime, value: data.bb_upper });
     }
     if (data?.bb_lower && chartSeries[watchId]?.bbLower) {
-        chartSeries[watchId].bbLower.update({ time: currentPeriodTime, value: data.bb_lower });
+        chartSeries[watchId].bbLower.update({ time: candleTime, value: data.bb_lower });
     }
     
     // Update live confirm MA point
     if (data?.confirm_ma_value && chartSeries[watchId]?.confirmMa) {
-        chartSeries[watchId].confirmMa.update({ time: currentPeriodTime, value: data.confirm_ma_value });
+        chartSeries[watchId].confirmMa.update({ time: candleTime, value: data.confirm_ma_value });
     }
     
-    // For daily: use IB's day OHLC
-    // For weekly/monthly: track cumulative OHLC since period start
+    // For daily/hourly: use IB's day OHLC and calculated period time
+    // For weekly/monthly: use existing todayCandle time (from IB) and track H/L ourselves
     const isDaily = timeframe === 'D' || timeframe === 'H';
     
-    if (!todayCandle[watchId] || todayCandle[watchId].time < currentPeriodTime) {
-        // New period - create new candle
-        if (isDaily) {
-            // Daily/Hourly: use IB's day OHLC for accurate intraday data
-            todayCandle[watchId] = {
-                time: currentPeriodTime,
-                open: data?.day_open || price,
-                high: data?.day_high || price,
-                low: data?.day_low || price,
-                close: price,
-            };
-        } else {
-            // Weekly/Monthly: start fresh, accumulate from current price
-            todayCandle[watchId] = {
-                time: currentPeriodTime,
-                open: price,
-                high: price,
-                low: price,
-                close: price,
-            };
-        }
-    } else {
+    if (todayCandle[watchId]) {
         // Update existing candle
         todayCandle[watchId].close = price;
         if (isDaily) {
-            // Daily: use IB's tracked high/low
             todayCandle[watchId].high = Math.max(todayCandle[watchId].high, data?.day_high || price);
             todayCandle[watchId].low = Math.min(todayCandle[watchId].low, data?.day_low || price);
         } else {
@@ -1565,8 +1565,18 @@ function updateLiveCandle(watchId, price) {
             todayCandle[watchId].high = Math.max(todayCandle[watchId].high, price);
             todayCandle[watchId].low = Math.min(todayCandle[watchId].low, price);
         }
+    } else {
+        // Create new candle (should not happen if renderChart was called first)
+        todayCandle[watchId] = {
+            time: currentPeriodTime,
+            open: isDaily ? (data?.day_open || price) : price,
+            high: isDaily ? (data?.day_high || price) : price,
+            low: isDaily ? (data?.day_low || price) : price,
+            close: price,
+        };
     }
     
+    console.log('Updating candle:', watchId, todayCandle[watchId]);
     chartSeries[watchId].candle.update(todayCandle[watchId]);
 }
 
