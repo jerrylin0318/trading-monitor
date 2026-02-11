@@ -595,12 +595,14 @@ async def monitor_loop():
                 # Skip broadcast if price unchanged (avoid WebSocket spam)
                 old_price = last_broadcast_prices.get(watch_id, 0)
                 price_changed = abs(price - old_price) >= 0.001
+                logger.debug("Price check: %s price=%.2f old=%.2f changed=%s", watch.symbol, price, old_price, price_changed)
 
                 # Check signal using pre-calculated thresholds (just a comparison)
                 signal = engine.check_price(watch_id, price)
 
                 # Broadcast data_update when price changes
                 if price_changed or signal:
+                    logger.info("📤 Broadcasting data_update for %s: price=%.2f (changed=%s)", watch.symbol, price, price_changed)
                     data = engine.latest_data.get(watch_id, {})
                     
                     # Include day OHLC for live candle
