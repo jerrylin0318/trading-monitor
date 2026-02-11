@@ -1555,25 +1555,39 @@ function updateLiveCandle(watchId, price) {
         currentPeriodTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
     }
     
-    // Use todayCandle's time if available (important for weekly/monthly where IB uses Friday)
+    // Use todayCandle's time for candle updates
     const candleTime = todayCandle[watchId]?.time || currentPeriodTime;
     
-    // Update live MA point (middle line for BB)
+    // For line series (MA/BB), use currentPeriodTime to match how backend calculates real-time values
+    // This avoids "Cannot update oldest data" errors when candle time differs from MA series time
+    const lineTime = currentPeriodTime;
+    
+    // Update live MA point (middle line for BB) - use try/catch to handle time mismatch gracefully
     if (data?.ma_value && chartSeries[watchId]?.ma) {
-        chartSeries[watchId].ma.update({ time: candleTime, value: data.ma_value });
+        try {
+            chartSeries[watchId].ma.update({ time: lineTime, value: data.ma_value });
+        } catch (e) {
+            // Ignore update errors (e.g., time already exists with different value)
+        }
     }
     
     // Update live BB bands
     if (data?.bb_upper && chartSeries[watchId]?.bbUpper) {
-        chartSeries[watchId].bbUpper.update({ time: candleTime, value: data.bb_upper });
+        try {
+            chartSeries[watchId].bbUpper.update({ time: lineTime, value: data.bb_upper });
+        } catch (e) {}
     }
     if (data?.bb_lower && chartSeries[watchId]?.bbLower) {
-        chartSeries[watchId].bbLower.update({ time: candleTime, value: data.bb_lower });
+        try {
+            chartSeries[watchId].bbLower.update({ time: lineTime, value: data.bb_lower });
+        } catch (e) {}
     }
     
     // Update live confirm MA point
     if (data?.confirm_ma_value && chartSeries[watchId]?.confirmMa) {
-        chartSeries[watchId].confirmMa.update({ time: candleTime, value: data.confirm_ma_value });
+        try {
+            chartSeries[watchId].confirmMa.update({ time: lineTime, value: data.confirm_ma_value });
+        } catch (e) {}
     }
     
     // For daily/hourly: use IB's day OHLC and calculated period time
