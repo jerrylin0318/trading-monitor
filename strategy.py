@@ -534,20 +534,41 @@ class StrategyEngine:
             "bb_middle": round(bb_middle, 4) if bb_middle else None,
         }
 
-        cache.last_price = price
-
         # Direction filter: LONG only triggers on BUY, SHORT only on SELL
         if watch.direction == "LONG" and signal_type != "BUY":
+            cache.last_price = price
             return None
         if watch.direction == "SHORT" and signal_type != "SELL":
+            cache.last_price = price
             return None
 
         # Check if price is in trigger zone
         in_zone = trigger_low <= price <= trigger_high
         
+        # Check entry direction: must enter zone from the correct side
+        # LONG/BUY: price should come FROM ABOVE (was > trigger_high, now in zone)
+        # SHORT/SELL: price should come FROM BELOW (was < trigger_low, now in zone)
+        last_price = cache.last_price or price
+        entered_correctly = False
+        
+        if signal_type == "BUY":
+            # For BUY: must enter from above (pullback to MA/support)
+            # Was above zone OR was already in zone (continuing)
+            entered_correctly = last_price >= trigger_high or (trigger_low <= last_price <= trigger_high)
+        elif signal_type == "SELL":
+            # For SELL: must enter from below (rally to MA/resistance)
+            # Was below zone OR was already in zone (continuing)
+            entered_correctly = last_price <= trigger_low or (trigger_low <= last_price <= trigger_high)
+        
+        cache.last_price = price
+        
         # Check confirmation MA condition (if enabled, for both MA and BB strategies)
         if not confirm_ma_ok:
             # Confirmation MA direction doesn't match — don't trigger
+            return None
+        
+        # Must enter from correct direction
+        if not entered_correctly:
             return None
 
         if in_zone and not cache.signal_fired:
