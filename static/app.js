@@ -286,60 +286,58 @@ async function renderChartInSheet(watchId) {
     const timeframe = chartData.timeframe || 'D';
     chartTimeframes[watchId] = timeframe;  // Store for live updates
     
-    // Add/update current period candle from real-time OHLC data
-    const data = state.latestData[watchId];
-    if (data?.current_price) {
+    // Initialize todayCandle for live updates
+    const data = state.latestData[watchId] || {};
+    const currentPrice = data.current_price;
+    const lastCandle = chartData.candles[chartData.candles.length - 1];
+    const isWeeklyMonthly = timeframe === 'W' || timeframe === 'M';
+    const periodSeconds = timeframe === 'W' ? 7 * 86400 : 31 * 86400;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    
+    // For weekly/monthly: always init todayCandle from last IB candle (even without current_price)
+    if (isWeeklyMonthly && lastCandle && (nowSeconds - lastCandle.time) < periodSeconds) {
+        // Use IB's last candle as the live candle
+        todayCandle[watchId] = {
+            time: lastCandle.time,
+            open: lastCandle.open,
+            high: currentPrice ? Math.max(lastCandle.high, currentPrice) : lastCandle.high,
+            low: currentPrice ? Math.min(lastCandle.low, currentPrice) : lastCandle.low,
+            close: currentPrice || lastCandle.close,
+        };
+        candleSeries.update(todayCandle[watchId]);
+    } else if (currentPrice) {
+        // Daily/Hourly: need current_price to init
         const now = new Date();
         let currentPeriodTime;
         
         if (timeframe === 'H') {
-            // Hourly: start of current hour
             currentPeriodTime = Math.floor(Date.now() / 1000 / 3600) * 3600;
         } else if (timeframe === 'W') {
-            // Weekly: start of current week (Monday 00:00 UTC)
             const day = now.getUTCDay();
-            const diff = day === 0 ? 6 : day - 1; // Monday = 0
+            const diff = day === 0 ? 6 : day - 1;
             const monday = new Date(now);
             monday.setUTCDate(now.getUTCDate() - diff);
             monday.setUTCHours(0, 0, 0, 0);
             currentPeriodTime = Math.floor(monday.getTime() / 1000);
         } else if (timeframe === 'M') {
-            // Monthly: start of current month
             const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
             currentPeriodTime = Math.floor(monthStart.getTime() / 1000);
         } else {
-            // Daily: start of today
             currentPeriodTime = Math.floor(Date.now() / 1000 / 86400) * 86400;
         }
         
-        const lastCandle = chartData.candles[chartData.candles.length - 1];
-        const dayOpen = data.day_open || data.current_price;
-        const dayHigh = data.day_high || data.current_price;
-        const dayLow = data.day_low || data.current_price;
+        const dayOpen = data.day_open || currentPrice;
+        const dayHigh = data.day_high || currentPrice;
+        const dayLow = data.day_low || currentPrice;
         
-        // For weekly/monthly: IB uses Friday as timestamp, not Monday
-        // So we update the last candle if it's within the current period
-        const isWeeklyMonthly = timeframe === 'W' || timeframe === 'M';
-        const periodSeconds = timeframe === 'W' ? 7 * 86400 : 31 * 86400;
-        const nowSeconds = Math.floor(Date.now() / 1000);
-        
-        if (isWeeklyMonthly && lastCandle && (nowSeconds - lastCandle.time) < periodSeconds) {
-            // Update the last candle (current period) - IB already provided it
-            todayCandle[watchId] = {
-                time: lastCandle.time,  // Keep IB's timestamp
-                open: lastCandle.open,
-                high: Math.max(lastCandle.high, data.current_price),
-                low: Math.min(lastCandle.low, data.current_price),
-                close: data.current_price,
-            };
-        } else if (lastCandle && lastCandle.time === currentPeriodTime) {
-            // Daily/Hourly: Update existing current period candle
+        if (lastCandle && lastCandle.time === currentPeriodTime) {
+            // Update existing current period candle
             todayCandle[watchId] = {
                 time: currentPeriodTime,
                 open: lastCandle.open,
                 high: Math.max(lastCandle.high, dayHigh),
                 low: Math.min(lastCandle.low, dayLow),
-                close: data.current_price,
+                close: currentPrice,
             };
         } else if (lastCandle && lastCandle.time < currentPeriodTime) {
             // Create new candle for current period
@@ -348,7 +346,7 @@ async function renderChartInSheet(watchId) {
                 open: dayOpen,
                 high: dayHigh,
                 low: dayLow,
-                close: data.current_price,
+                close: currentPrice,
             };
         }
         
