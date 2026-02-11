@@ -1558,35 +1558,44 @@ function updateLiveCandle(watchId, price) {
     // Use todayCandle's time for candle updates
     const candleTime = todayCandle[watchId]?.time || currentPeriodTime;
     
-    // For line series (MA/BB), use currentPeriodTime to match how backend calculates real-time values
-    // This avoids "Cannot update oldest data" errors when candle time differs from MA series time
-    const lineTime = currentPeriodTime;
+    // For line series (MA/BB), get the last time from the series itself to ensure we update the right point
+    // This avoids "Cannot update oldest data" errors when candle time differs from line series time
+    const getLastTime = (series) => {
+        try {
+            const d = series.data();
+            return d.length > 0 ? d[d.length - 1].time : currentPeriodTime;
+        } catch (e) {
+            return currentPeriodTime;
+        }
+    };
     
-    // Update live MA point (middle line for BB) - use try/catch to handle time mismatch gracefully
+    // Update live MA point (middle line for BB)
     if (data?.ma_value && chartSeries[watchId]?.ma) {
         try {
-            chartSeries[watchId].ma.update({ time: lineTime, value: data.ma_value });
-        } catch (e) {
-            // Ignore update errors (e.g., time already exists with different value)
-        }
+            const maTime = getLastTime(chartSeries[watchId].ma);
+            chartSeries[watchId].ma.update({ time: maTime, value: data.ma_value });
+        } catch (e) {}
     }
     
     // Update live BB bands
     if (data?.bb_upper && chartSeries[watchId]?.bbUpper) {
         try {
-            chartSeries[watchId].bbUpper.update({ time: lineTime, value: data.bb_upper });
+            const bbTime = getLastTime(chartSeries[watchId].bbUpper);
+            chartSeries[watchId].bbUpper.update({ time: bbTime, value: data.bb_upper });
         } catch (e) {}
     }
     if (data?.bb_lower && chartSeries[watchId]?.bbLower) {
         try {
-            chartSeries[watchId].bbLower.update({ time: lineTime, value: data.bb_lower });
+            const bbTime = getLastTime(chartSeries[watchId].bbLower);
+            chartSeries[watchId].bbLower.update({ time: bbTime, value: data.bb_lower });
         } catch (e) {}
     }
     
     // Update live confirm MA point
     if (data?.confirm_ma_value && chartSeries[watchId]?.confirmMa) {
         try {
-            chartSeries[watchId].confirmMa.update({ time: lineTime, value: data.confirm_ma_value });
+            const cmTime = getLastTime(chartSeries[watchId].confirmMa);
+            chartSeries[watchId].confirmMa.update({ time: cmTime, value: data.confirm_ma_value });
         } catch (e) {}
     }
     
