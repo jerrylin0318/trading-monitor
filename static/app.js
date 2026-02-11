@@ -639,13 +639,14 @@ function handleMessage(msg) {
             if (prev.selected_expiry && !msg.data.selected_expiry) {
                 state.latestData[msg.watch_id].selected_expiry = prev.selected_expiry;
             }
-            // If chart is expanded, only update prices (don't destroy chart)
+            // Always update live candle if chart exists (even if not currently shown)
+            if (chartSeries[msg.watch_id]?.candle && msg.data.current_price) {
+                updateLiveCandle(msg.watch_id, msg.data.current_price);
+            }
+            
+            // If chart is expanded, update price displays
             if (state.expandedChart && chartSeries[state.expandedChart]) {
                 updatePriceDisplays(msg.watch_id, msg.data);
-                // Update live candle
-                if (state.expandedChart === msg.watch_id) {
-                    updateLiveCandle(msg.watch_id, msg.data.current_price);
-                }
             } else {
                 renderWatchList();
                 // Render chart if just expanded
